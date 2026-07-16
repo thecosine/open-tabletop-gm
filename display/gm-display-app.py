@@ -75,6 +75,10 @@ from quest_cache import (
     refresh_from_state as _refresh_quests_from_state,
     write_snapshot as _write_quest_snapshot,
 )
+from people_cache import (
+    build_snapshot as _build_people_snapshot,
+    empty_snapshot as _empty_people_snapshot,
+)
 from portrait_paths import normalize_player_records as _normalize_player_records
 
 # TTS module — degrades silently if Gemini API key not configured.
@@ -1080,6 +1084,28 @@ def _install_quest_snapshot(snapshot: dict) -> None:
             _current_stats["campaign"] = snapshot["campaign"]
 
 
+def _install_people_snapshot(snapshot: dict) -> None:
+    with _stats_lock:
+        _current_stats["people"] = list(snapshot.get("people", []))
+        _current_stats["people_meta"] = dict(snapshot.get("people_meta", {}))
+
+
+def _refresh_campaign_people(campaign: str) -> dict:
+    """Project canonical campaign NPC data into a display-safe snapshot."""
+    with _stats_lock:
+        player_names = [
+            str(player.get("name", ""))
+            for player in _current_stats.get("players", [])
+            if isinstance(player, dict) and player.get("name")
+        ]
+    try:
+        snapshot = _build_people_snapshot(_find_campaign(campaign), campaign, player_names)
+    except (OSError, ValueError):
+        snapshot = _build_people_snapshot("", campaign, player_names)
+    _install_people_snapshot(snapshot)
+    return snapshot
+
+
 def _restore_active_quests() -> dict | None:
     """Restore the active campaign cache at process startup without reading state.md."""
     campaign = _active_campaign()
@@ -1104,6 +1130,8 @@ def _refresh_campaign_quests(campaign: str) -> dict:
 
 
 _restore_active_quests()
+if _active_campaign():
+    _refresh_campaign_people(_active_campaign())
 
 
 # ─── Player input queue ───────────────────────────────────────────────────────
@@ -1294,6 +1322,9 @@ def chunk():
         campaign = str(data["campaign"]).strip()
         if not campaign:
             return "Campaign name required", 400
+        # Do not let a reconnect observe the previous campaign's People data
+        # after campaign registration has begun.
+        _install_people_snapshot(_empty_people_snapshot(campaign))
         try:
             with open(CAMP_FILE, "w") as f:
                 f.write(campaign)
@@ -1302,8 +1333,9 @@ def chunk():
             # A campaign switch is a /gm load lifecycle trigger: normalize from
             # state.md and replace the entire quest snapshot before broadcasting.
             _refresh_campaign_quests(campaign)
+            _refresh_campaign_people(campaign)
         except (OSError, ValueError) as exc:
-            return f"Campaign quest refresh failed: {exc}", 400
+            return f"Campaign display refresh failed: {exc}", 400
         # Resolve and stash the system version for this campaign so the sidebar
         # badge can render. Empty string when the field is unset (legacy
         # campaigns predating the field — they should be migrated via
@@ -1815,6 +1847,15 @@ def stats():
             _current_stats["quests_meta"] = _quest_meta(quest_snapshot)
 
         current = dict(_current_stats)
+
+    # A campaign registration can precede its replacement player snapshot.
+    # Re-project after player changes so current PCs never remain in People.
+    if "players" in data:
+        campaign = _active_campaign()
+        if campaign:
+            _refresh_campaign_people(campaign)
+            with _stats_lock:
+                current = dict(_current_stats)
 
     # autorun_waiting / autorun_cycle — display-only signals, not stored in stats
     if "autorun_waiting" in data:

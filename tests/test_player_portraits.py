@@ -273,11 +273,13 @@ class DashboardFrontendContractTests(unittest.TestCase):
         for label in ("Overview", "Inventory", "People", "Spells", "Features", "Notes"):
             self.assertEqual(self.source.count(f'data-dashboard-tab="{label}"'), 1)
 
-    def test_only_overview_has_real_dashboard_content(self):
+    def test_overview_and_people_have_real_dashboard_content(self):
         self.assertIn("function _renderDashboardOverview(panel, p)", self.source)
+        self.assertIn("function _renderDashboardPeople(panel, selectedPlayer)", self.source)
         self.assertIn("if (tabName === 'Overview')", self.source)
+        self.assertIn("if (tabName === 'People')", self.source)
         self.assertIn("dashboard content is coming in a later phase", self.source)
-        for tab in ("Inventory", "People", "Spells", "Features", "Notes"):
+        for tab in ("Inventory", "Spells", "Features", "Notes"):
             self.assertNotIn(f"function _renderDashboard{tab}", self.source)
 
     def test_tab_switching_is_client_side(self):
