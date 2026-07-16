@@ -18,6 +18,9 @@ Usage:
     # Quick XP update:
     python3 push_stats.py --player Flerb --xp 220 300      # current next_level
 
+    # Player portrait (safe local display path only):
+    python3 push_stats.py --player Flerb --portrait /static/portraits/party/flerb.png
+
     # Hit dice (short rest):
     python3 push_stats.py --player Flerb --hit-dice-use    # spend one hit die
     python3 push_stats.py --player Flerb --hit-dice-restore 2  # restore N hit dice
@@ -82,6 +85,8 @@ import ssl
 import time
 import urllib.request
 
+from portrait_paths import normalize_player_records
+
 _DISPLAY_DIR = os.path.dirname(os.path.abspath(__file__))
 _SCHEME_FILE = os.path.join(_DISPLAY_DIR, ".scheme")
 _SCHEME = open(_SCHEME_FILE).read().strip() if os.path.exists(_SCHEME_FILE) else "http"
@@ -106,15 +111,18 @@ def _read_token() -> str:
         return ""
 
 
-def _send(url: str, data: bytes, token: str) -> None:
+def _send(url: str, data: bytes, token: str, report_errors: bool = False) -> bool:
     headers = {"Content-Type": "application/json"}
     if token:
         headers["X-DND-Token"] = token
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         urllib.request.urlopen(req, timeout=TIMEOUT, context=_SSL_CTX)
-    except Exception:
-        pass  # Display not running — fail silently
+        return True
+    except Exception as exc:
+        if report_errors:
+            print(f"Display transport error: {exc}", file=sys.stderr)
+        return False
 
 
 def main() -> None:
@@ -129,6 +137,8 @@ def main() -> None:
                         help="Set temp HP; use 0 to clear (requires --player)")
     parser.add_argument("--xp", nargs=2, metavar=("CURRENT", "NEXT"), type=int,
                         help="Update XP (requires --player)")
+    parser.add_argument("--portrait", metavar="PATH",
+                        help="Set a safe local /static/ player portrait (requires --player)")
     parser.add_argument("--hit-dice-use", action="store_true",
                         help="Spend one hit die (requires --player)")
     parser.add_argument("--hit-dice-restore", metavar="N", type=int,
@@ -207,7 +217,7 @@ def main() -> None:
 
     # ── Per-player shorthands ──────────────────────────────────────────────────
     _player_flags = (
-        args.hp or args.temp_hp is not None or args.xp
+        args.hp or args.temp_hp is not None or args.xp or args.portrait is not None
         or args.second_wind is not None
         or args.conditions is not None or args.conditions_add or args.conditions_remove
         or args.concentrate is not None
@@ -227,6 +237,8 @@ def main() -> None:
             player_update["hp"]["temp"] = args.temp_hp
         if args.xp:
             player_update["xp"] = {"current": args.xp[0], "next": args.xp[1]}
+        if args.portrait is not None:
+            player_update["portrait"] = args.portrait
         if args.second_wind is not None:
             player_update["second_wind"] = args.second_wind.lower() == "true"
         if args.conditions is not None:
@@ -359,7 +371,19 @@ def main() -> None:
         print("Nothing to push. Use --help for usage.", file=sys.stderr)
         return
 
-    _send(FLASK_URL, json.dumps(payload).encode("utf-8"), _read_token())
+    if "players" in payload:
+        try:
+            payload["players"] = normalize_player_records(payload["players"])
+        except ValueError as exc:
+            print(f"Invalid player payload: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+    data = json.dumps(payload).encode("utf-8")
+    if args.portrait is not None:
+        if not _send(FLASK_URL, data, _read_token(), report_errors=True):
+            sys.exit(1)
+    else:
+        _send(FLASK_URL, data, _read_token())
 
 
 if __name__ == "__main__":
