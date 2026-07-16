@@ -213,6 +213,7 @@ python3 <skill-base>/display/push_stats.py --factions '[]'   # clear all
 python3 <skill-base>/display/push_stats.py \
   --quests '[{"name":"The Missing Shipment","status":"active"},{"name":"Verun the Betrayer","status":"threat"}]'
 python3 <skill-base>/display/push_stats.py --quests '[]'   # clear all
+python3 <skill-base>/display/push_stats.py --refresh-quests # authoritative state.md snapshot
 
 # Combat turn order (on /gm combat start):
 python3 <skill-base>/display/push_stats.py --turn-order \
@@ -248,6 +249,9 @@ python3 <skill-base>/display/push_stats.py --clear
 - Item gained — `--inventory-add "Item"`; spent — `--inventory-remove "Item"`
 - Faction changes — `--factions '[...]'` (full replace)
 - Quest status changes — `--quests '[...]'` (full replace; use `[]` to clear all)
+- Quest creation/update/reconciliation — update `state.md` first, then use
+  `--refresh-quests`; this writes the campaign-local cache and broadcasts one
+  complete stats snapshot without narration.
 - Combat start — `--turn-order`; each turn — `--turn-current`; end — `--turn-clear`
 - Any rest or time advance — `--world-time`
 
@@ -355,3 +359,29 @@ python3 <skill-base>/systems/dnd5e/xp.py award \
 **Difficulty tiers:** `easy` `medium` `hard` `deadly` (both combat and non-combat use the same table)
 **Monster format:** `name:cr:count` — CR accepts `1/4`, `0.25`, `1/2`, `0.5`, or integers. Count defaults to 1.
 **Monster multiplier** (auto-applied): ×1 (1 monster) · ×1.5 (2) · ×2 (3–6) · ×2.5 (7–10) · ×3 (11–14) · ×4 (15+)
+
+### Mythlon XP event resolver
+
+Use this instead of direct `award-xp` calls for newly resolved Mythlon events:
+
+```bash
+# Register a future quest/milestone before deferring anything into it
+python3 <skill-base>/scripts/mythlon_xp_event.py register \
+  --campaign CAMPAIGN --event-id milestone-example-001 \
+  --name "Example Milestone" --category milestone --amount 500
+
+# Immediate, idempotent award
+python3 <skill-base>/scripts/mythlon_xp_event.py resolve \
+  --campaign CAMPAIGN --event-id combat-example-001 \
+  --name "Example Encounter" --category combat --amount 200 --status awarded
+
+# Explicit deferral
+python3 <skill-base>/scripts/mythlon_xp_event.py resolve \
+  --campaign CAMPAIGN --event-id combat-example-002 \
+  --name "Example Guards" --category combat --amount 100 \
+  --status deferred-to-milestone --target-event milestone-example-001 \
+  --reason "Included in milestone reward" --trigger "Milestone resolves" \
+  --amount-handling included-in-target
+```
+
+The resolver writes `campaigns/<campaign>/xp-events.json`, invokes the progression engine once for immediate awards, protects direct and linked IDs from duplicates, updates campaign/browser XP, and emits a replayable XP summary.

@@ -203,6 +203,33 @@ def _audit(text: str) -> None:
         pass
 
 
+def _format_injection(sanitized: str) -> str:
+    """Frame contiguous action/OOC/META lines without changing their order."""
+    blocks: list[tuple[str, list[str]]] = []
+    for line in sanitized.splitlines():
+        match = _ACTION_LINE.match(line)
+        text = match.group(2).strip() if match else ""
+        if re.match(r"^OOC:\s*", text, re.IGNORECASE):
+            kind = "ooc"
+        elif re.match(r"^META:\s*", text, re.IGNORECASE):
+            kind = "meta"
+        else:
+            kind = "action"
+        if not blocks or blocks[-1][0] != kind:
+            blocks.append((kind, []))
+        blocks[-1][1].append(line)
+
+    headers = {
+        "action": "[PLAYER ACTION — in-game only]",
+        "ooc": "[PLAYER OOC — answer directly; send browser reply with send.py --gm-ooc]",
+        "meta": "[PLAYER META — campaign management; send browser reply with send.py --gm-meta]",
+    }
+    return "\n" + "\n".join(
+        f"{headers[kind]}:\n" + "\n".join(lines)
+        for kind, lines in blocks
+    )
+
+
 def _inject_queue(master_fd: int) -> None:
     """Inject .input_queue content when the DM presses Enter.
 
@@ -229,7 +256,7 @@ def _inject_queue(master_fd: int) -> None:
     if not sanitized:
         return
 
-    body = f"\n[PLAYER ACTION — in-game only]:\n{sanitized}"
+    body = _format_injection(sanitized)
     _audit(sanitized)
 
     try:
@@ -267,7 +294,7 @@ def _check_trigger(master_fd: int) -> None:
     # Write text then Enter as two separate calls with a brief pause.
     # This mirrors how a human types text then presses Enter.
     # \r (0x0D) is the Enter signal in raw PTY mode.
-    body = f"\n[PLAYER ACTION — in-game only]:\n{sanitized}"
+    body = _format_injection(sanitized)
     _audit(sanitized)
 
     try:

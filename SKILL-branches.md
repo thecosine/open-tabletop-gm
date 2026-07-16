@@ -22,8 +22,15 @@ Skip this step entirely if `display=OFF`.
    ```
    python3 <skill-base>/display/send.py --set-campaign <name> < /dev/null
    ```
+   Campaign registration also rebuilds the display-safe quest snapshot from
+   `state.md → ## Active Quests`, replaces the prior campaign's browser quest
+   cache, persists it as `display_quests.json`, and broadcasts the new snapshot.
 2. Read `~/open-tabletop-gm/campaigns/<name>/session_tail.json`. **The campaign-side path is the authoritative one — do NOT read** the legacy/fallback at `<skill-base>/display/session_tail.json`; that file may exist from older sessions or other campaigns and will mislead the replay. If the campaign-side file does not exist, skip the rest of this step (display starts blank).
 3. For each entry in the tail array, send it via `send.py` using the entry's keys:
+   - `player_ooc` key present → `send.py --player-ooc <name>` with text via stdin
+   - `gm_ooc` key present → `send.py --gm-ooc` with text via stdin
+   - `player_meta` key present → `send.py --player-meta <name>` with text via stdin
+   - `gm_meta` key present → `send.py --gm-meta` with text via stdin
    - `player` key present → `send.py --player <name>` with text via stdin
    - `npc` key present → `send.py --npc <name>` with text via stdin
    - `dice` key present → `send.py --dice` with text via stdin
@@ -57,6 +64,11 @@ Skip this step if exit 0 or if the system declares no versions.
 3. `~/open-tabletop-gm/campaigns/<name>/npcs.md`
 
 After reading `state.md`, check `## Session Flags` for `roll_mode:`. If the field is missing (legacy campaign predating the flag), ask once: *"Dice rolls — `players` (default: players roll their own PCs and you wait) or `auto` (you roll everything openly)?"* Write the answer as `roll_mode: players|auto` to `## Session Flags`. Default to `players` if no answer. See SKILL.md → Dice convention for the in-session behaviour.
+
+If `display=OFF`, refresh the campaign-local quest cache without starting the display:
+```
+python3 <skill-base>/display/quest_cache.py --campaign <name>
+```
 
 **Step 5 — Pull scene-context from the campaign graph.** Always run, even if you suspect `graph.json` doesn't exist — the script exits cleanly with a notice when uninitialized.
 ```
@@ -112,6 +124,32 @@ Start or stop the display companion independently of session load.
 
 ---
 
+## `/gm autorun <on|off>`
+
+Persistent browser-input autorun requires OpenCode to be launched through the
+existing PTY wrapper:
+
+```bash
+GM_AGENT_CMD=opencode python3 <skill-base>/display/wrapper.py
+```
+
+- `on`:
+  1. Verify `DND_PTY_WRAPPED=1`. If absent, do not start; tell the GM to restart with the command above.
+  2. Write `autorun: true` under the active campaign's `## Session Flags`.
+  3. Run `python3 <skill-base>/display/autorun_wait.py --start`.
+  4. Report the returned PID. Repeating `on` must return `already running pid=<same-pid>`.
+- `off`:
+  1. Run `python3 <skill-base>/display/autorun_wait.py --stop`.
+  2. Write `autorun: false` under the active campaign's `## Session Flags`.
+  3. Report the stopped PID.
+
+The poller peeks through `check_input.py`, pushes a verified Player Action block,
+then atomically promotes the unchanged queue to `.input_trigger`. `wrapper.py`
+validates and injects that exact text into the active OpenCode PTY. Empty queues
+remain idle and generate no turn.
+
+---
+
 ## `/gm path [<new-path> | reset]`
 
 View or configure where campaign and character data is stored. Wraps the `GM_CAMPAIGN_ROOT` env var (default `~/open-tabletop-gm`).
@@ -137,6 +175,12 @@ Pull the latest skill changes from `origin/main`.
 
 ## ACTIVE — Narration Turn
 
+**OOC and META sideband messages take priority over the narration-turn flow.**
+
+- Input beginning `OOC:` (case-insensitive) is an out-of-character question. Answer directly without advancing fiction, consuming actions/resources, rolling dice, changing turns/time, or writing campaign state. If display is running, preserve the exact question as `send.py --player-ooc <name>` unless it arrived inside a `[PLAYER OOC ...]` wrapper block (autorun already persisted it), then send the exact answer with `send.py --gm-ooc`.
+- Input beginning `META:` is campaign-management discussion outside the fiction. Apply the same no-fiction/no-roll/no-state rule. If display is running, preserve the exact request with `send.py --player-meta <name>` unless autorun already persisted it, then send the exact response with `send.py --gm-meta`.
+- Never send OOC/META through `--action`, `--player`, NPC dialogue, or plain narration. Never add it to character dialogue history. Preserve OOC/META ordering exactly.
+
 Each player message during an active session:
 
 1. If display running: run `check_input.py` first; merge any queued input with the player's message
@@ -144,6 +188,7 @@ Each player message during an active session:
 3. If dice are needed: read `scripts/general.md` → run `dice.py` → narrate result
 4. If display running: send narration via `send.py` (bundle all stat flags in one call)
 5. If HP/conditions/slots changed: update display with the relevant `push_stats.py` partial flags
+6. If the action resolves an awardable combat, exploration, rescue, quest, diplomacy, crafting, trade-assimilation, dungeon, story, or other meaningful event: assign/confirm its stable event ID and process its XP disposition immediately per `SKILL.md → Experience & Progression`. For Mythlon, use `scripts/mythlon_xp_event.py`; do not leave a generic pending award.
 
 **Do not read scripts/general.md unless a roll is needed. Do not read scripts/startup.md unless sending to display.**
 
@@ -169,9 +214,11 @@ Each turn in combat:
 
 1. Run `tracker.py clear`
 2. Clear turn order: `push_stats.py --turn-clear`
-3. Narrate aftermath, award XP (read `scripts/character.md` for `xp.py`)
-4. Clear `## Active Combat` in state.md
-5. Return to ACTIVE state
+3. Resolve the encounter record with a stable event ID and known XP amount.
+4. Determine its XP status and award immediately unless the record explicitly contains a valid deferred/bundled linkage. For Mythlon, run `scripts/mythlon_xp_event.py resolve`; never create `not-awarded`.
+5. Narrate aftermath and show the XP summary in OpenCode/browser.
+6. Clear `## Active Combat` in state.md.
+7. Return to ACTIVE state.
 
 ---
 
@@ -210,7 +257,14 @@ Each turn in combat:
 No script reads needed.
 1. Write session events to `session-log.md`
 2. Update `state.md` (location, quests, HP/resources, recent events, faction moves)
+   After quest reconciliation, refresh the complete local snapshot. If the display
+   is running, this broadcasts only stats and does not replay or regenerate narration:
+   ```bash
+   python3 <skill-base>/display/push_stats.py --refresh-quests
+   ```
+   If the display is off, run `python3 <skill-base>/display/quest_cache.py --campaign <name>` instead.
 3. Update any `characters/*.md` that changed; mirror to `~/open-tabletop-gm/characters/`
+4. Validate `xp-events.json` when present: every resolved awardable event must use an allowed XP status; deferred records must have a valid target/reason/trigger/amount handling; awarded IDs must appear directly or as linked events in progression history. Do not silently award ambiguous legacy/pending records during save.
 
    **Going-forward Continuity Archive compression rule (when `graph.json` exists for the campaign):** Continuity Archive bullets in state.md must NOT restate relational state the graph holds canonically.
 
@@ -231,7 +285,7 @@ No script reads needed.
 
    Treat each bullet as one sentence with one job. If the only job is restating a graph edge, drop it. If it carries content + edge, keep the content half. The graph is queried at `/gm load` Step 4; the archive is queried for chronological narrative + mechanical state — they should not overlap.
 
-4. **Campaign-graph relationship-shift sweep.** Skip if `graph.json` doesn't exist for this campaign. Otherwise scan this session's narration for relationship shifts that weren't captured live via `/gm graph add-edge` / `close-edge`. Look for moments matching:
+5. **Campaign-graph relationship-shift sweep.** Skip if `graph.json` doesn't exist for this campaign. Otherwise scan this session's narration for relationship shifts that weren't captured live via `/gm graph add-edge` / `close-edge`. Look for moments matching:
    - New alliance, betrayal, or rivalry between named NPCs / factions
    - An NPC moving into / out of a location
    - A faction taking control of (or losing) a place

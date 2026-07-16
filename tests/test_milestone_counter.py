@@ -14,6 +14,7 @@ import importlib
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -35,7 +36,12 @@ class MilestoneCounterTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        cls.live_stats_path = REPO / "display" / "stats.json"
+        cls.live_stats_before = cls.live_stats_path.read_bytes()
+        cls.stats_tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.stats_tmp.cleanup)
         cls.mod = _import_app()
+        cls.mod.STATS_FILE = str(pathlib.Path(cls.stats_tmp.name) / "stats.json")
         # Bypass token gate
         cls.mod._token_ok = lambda: True
         cls.client = cls.mod.app.test_client()
@@ -45,6 +51,13 @@ class MilestoneCounterTests(unittest.TestCase):
         self.mod._current_stats = {
             "players": [{"name": "Aldric", "milestones": {}}]
         }
+
+    def tearDown(self):
+        self.assertEqual(
+            self.live_stats_path.read_bytes(),
+            self.live_stats_before,
+            "milestone test modified the live display/stats.json",
+        )
 
     def _post(self, body):
         return self.client.post(
