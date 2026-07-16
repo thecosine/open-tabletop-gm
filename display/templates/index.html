@@ -543,7 +543,8 @@
     z-index: 6;
     overflow-y: auto;
     overflow-x: hidden;
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(180,140,60,0.32) transparent;
     background: linear-gradient(to right, rgba(0,0,0,0.78) 82%, rgba(0,0,0,0.18));
     border-right: 1px solid rgba(180,140,60,0.28);
     padding: 54px 18px 18px 28px;
@@ -557,7 +558,13 @@
     opacity: 0;
     pointer-events: none;
   }
-  #sidebar::-webkit-scrollbar { display: none; }
+  #sidebar::-webkit-scrollbar { width: 6px; }
+  #sidebar::-webkit-scrollbar-track { background: transparent; }
+  #sidebar::-webkit-scrollbar-thumb {
+    background: rgba(180,140,60,0.28);
+    border-radius: 3px;
+  }
+  #sidebar::-webkit-scrollbar-thumb:hover { background: rgba(180,140,60,0.46); }
 
   /* ══════════════════════════════════════════════════════════
      ENCOUNTER SIDEBAR
@@ -771,6 +778,15 @@
   }
   .sb-player:last-of-type { border-bottom: none; margin-bottom: 0; }
 
+  .sb-identity-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    margin-bottom: 14px;
+  }
+  .sb-identity-copy { min-width: 0; flex: 1; }
+
   .sb-name {
     font-family: 'Cinzel', serif;
     font-size: 17px;
@@ -778,15 +794,13 @@
     letter-spacing: 1.5px;
     text-transform: uppercase;
     color: rgba(200,165,80,0.9);
-    margin-bottom: 6px;
-    padding-right: 34px;
+    margin-bottom: 4px;
   }
   .sb-identity {
     font-size: 13px;
     color: rgba(225,228,232,0.82);
     line-height: 1.5;
-    margin-bottom: 12px;
-    padding-right: 34px;
+    margin-bottom: 0;
   }
 
   /* ── HP row ── */
@@ -974,6 +988,180 @@
     padding-left: 4px;
   }
   .sb-player:hover { background: rgba(180,140,60,0.06); }
+  .sb-player.is-selected {
+    background: rgba(180,140,60,0.1);
+    box-shadow: inset 2px 0 rgba(220,180,90,0.65);
+  }
+
+  /* ── Selected-player dashboard ── */
+  #dashboard-overlay {
+    position: fixed;
+    inset: 0;
+    /* Keep the player rail above the backdrop so another character can be selected in place. */
+    z-index: 5;
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    overflow: hidden;
+    background: rgba(0,0,0,0.72);
+  }
+  #dashboard-overlay[hidden] { display: none; }
+  #dashboard-shell {
+    position: relative;
+    box-sizing: border-box;
+    width: min(820px, 100%);
+    max-width: 820px;
+    max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px);
+    margin: 0;
+    padding: 22px 24px 20px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(180,140,60,0.32) transparent;
+    color: rgba(238,230,210,0.92);
+    background: radial-gradient(circle at 12% 0%, rgba(180,140,60,0.13), transparent 36%), rgba(8,7,6,0.9);
+    border: 1px solid rgba(200,160,75,0.34);
+    border-radius: 5px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.42), inset 0 1px rgba(255,230,160,0.04);
+  }
+  #dashboard-shell::-webkit-scrollbar { width: 6px; }
+  #dashboard-shell::-webkit-scrollbar-track { background: transparent; }
+  #dashboard-shell::-webkit-scrollbar-thumb { background: rgba(180,140,60,0.28); border-radius: 3px; }
+  #dashboard-close {
+    position: absolute;
+    top: 9px;
+    right: 10px;
+    z-index: 1;
+    padding: 5px 8px;
+    color: rgba(225,200,135,0.74);
+    background: rgba(8,7,6,0.74);
+    border: 1px solid rgba(180,140,60,0.3);
+    border-radius: 3px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #dashboard-close:hover { color: #f3d98e; border-color: rgba(220,180,90,0.7); }
+  .dashboard-header { display: flex; align-items: center; gap: 18px; }
+  #dashboard-portrait-slot { width: 112px; height: 112px; flex: 0 0 112px; }
+  .dashboard-portrait,
+  .dashboard-portrait.sb-player-portrait {
+    position: static;
+    display: grid;
+    width: 112px;
+    height: 112px;
+    box-sizing: border-box;
+    place-items: center;
+    object-fit: cover;
+    border: 2px solid rgba(220,180,90,0.72);
+    border-radius: 5px;
+    background: #0b0f14;
+    filter: brightness(1.06) contrast(1.05) drop-shadow(0 0 9px rgba(210,165,70,0.24));
+    box-shadow: 0 6px 18px rgba(0,0,0,0.5);
+    opacity: 1;
+    pointer-events: none;
+  }
+  .dashboard-portrait.class-icon-fallback { font-size: 25px; letter-spacing: 2px; }
+  .dashboard-heading { min-width: 0; flex: 1; }
+  #dashboard-name {
+    margin: 0 0 5px;
+    color: rgba(224,190,105,0.98);
+    font-family: 'Cinzel', serif;
+    font-size: clamp(19px, 2.3vw, 27px);
+    line-height: 1.2;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  #dashboard-identity { color: rgba(225,228,232,0.74); font-size: 13px; line-height: 1.5; }
+  #dashboard-full-sheet {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    padding: 7px 9px;
+    color: rgba(225,200,135,0.78);
+    background: rgba(180,140,60,0.07);
+    border: 1px solid rgba(180,140,60,0.34);
+    border-radius: 3px;
+    font-family: 'Cinzel', serif;
+    font-size: 8px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  #dashboard-full-sheet:hover { color: #f3d98e; border-color: rgba(220,180,90,0.7); }
+  #dashboard-headline-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 16px; }
+  .dashboard-stat {
+    min-width: 86px;
+    padding: 8px 11px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid rgba(180,140,60,0.16);
+    border-radius: 3px;
+  }
+  .dashboard-stat-label,
+  .dashboard-overview-label {
+    display: block;
+    margin-bottom: 3px;
+    color: rgba(200,165,80,0.65);
+    font-family: 'Cinzel', serif;
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .dashboard-stat-value { color: rgba(247,245,238,0.96); font: 15px 'Cinzel', serif; }
+  #dashboard-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    border-bottom: 1px solid rgba(180,140,60,0.22);
+  }
+  .dashboard-tab {
+    flex: 1 1 auto;
+    padding: 9px 10px;
+    color: rgba(210,200,175,0.54);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .dashboard-tab:hover { color: rgba(240,220,170,0.88); }
+  .dashboard-tab[aria-selected="true"] { color: #f0d27a; border-bottom-color: #c89f45; }
+  #dashboard-tab-panel { min-height: 104px; padding-top: 16px; }
+  .dashboard-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dashboard-overview-card {
+    min-width: 0;
+    padding: 12px;
+    background: rgba(255,255,255,0.025);
+    border-left: 2px solid rgba(180,140,60,0.3);
+  }
+  .dashboard-overview-value { color: rgba(230,225,210,0.84); font-size: 12px; line-height: 1.65; }
+  .dashboard-condition-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .dashboard-condition-list .sb-condition-pill { font-size: 10px; }
+  .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .dashboard-placeholder {
+    padding: 24px 12px;
+    color: rgba(210,200,175,0.48);
+    font-size: 12px;
+    font-style: italic;
+    text-align: center;
+  }
+
+  @media (max-width: 700px) {
+    #dashboard-overlay { align-items: flex-start; padding: 12px; }
+    #dashboard-shell { width: 100%; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); padding: 16px; }
+    .dashboard-header { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+    #dashboard-portrait-slot,
+    .dashboard-portrait,
+    .dashboard-portrait.sb-player-portrait { width: 84px; height: 84px; flex-basis: 84px; }
+    #dashboard-full-sheet { order: 3; }
+    .dashboard-overview-grid { grid-template-columns: 1fr; }
+    .dashboard-tab { padding-inline: 8px; }
+  }
 
   /* ── Character sheet modal ── */
   #sheet-modal {
@@ -2260,25 +2448,30 @@
   /* ── Class icons ── */
   .sb-player { position: relative; }
   .sb-class-icon {
-    position: absolute;
-    top: 0; right: 0;
-    width: 30px; height: 30px;
-    opacity: 0.3;
-    filter: drop-shadow(0 0 6px rgba(177,77,255,0.5));
+    position: static;
+    display: grid;
+    flex: 0 0 64px;
+    width: 64px; height: 64px;
+    box-sizing: border-box;
+    opacity: 0.88;
+    filter: drop-shadow(0 0 7px rgba(210,165,70,0.28));
     pointer-events: none;
     transition: opacity 0.2s;
   }
-  .sb-player:hover .sb-class-icon { opacity: 0.6; }
+  .sb-player:hover .sb-class-icon { opacity: 1; }
   .sb-player-portrait {
-    position: absolute;
-    top: 0; right: 0;
-    width: 30px; height: 30px;
-    border-radius: 50%;
+    position: static;
+    flex: 0 0 64px;
+    width: 64px; height: 64px;
+    box-sizing: border-box;
+    border: 2px solid rgba(220,180,90,0.68);
+    border-radius: 5px;
     object-fit: cover;
+    filter: brightness(1.06) contrast(1.05) drop-shadow(0 0 7px rgba(210,165,70,0.28));
     pointer-events: none;
     transition: opacity 0.2s;
   }
-  .sb-player:hover .sb-player-portrait { opacity: 0.8; }
+  .sb-player:hover .sb-player-portrait { opacity: 1; }
   .portrait-fallback-hidden { display: none !important; }
   .class-icon-fallback {
     display: grid;
@@ -2318,6 +2511,7 @@
 
   /* ── Input-only view (mobile players): http://...:5001/?view=input ── */
   body.input-only #text-scroll,
+  body.input-only #dashboard-overlay,
   body.input-only #sidebar,
   body.input-only #sidebar-toggle,
   body.input-only #encounter-panel,
@@ -4099,6 +4293,31 @@
     <div id="encounter-resolved-list"></div>
   </details>
 </aside>
+
+<!-- Selected-player dashboard overlay -->
+<div id="dashboard-overlay" hidden>
+  <section id="dashboard-shell" role="dialog" aria-modal="true" aria-labelledby="dashboard-name" tabindex="-1">
+    <button id="dashboard-close" type="button" aria-label="Close character dashboard">&times;</button>
+    <div class="dashboard-header">
+      <div id="dashboard-portrait-slot" aria-hidden="true"></div>
+      <div class="dashboard-heading">
+        <h1 id="dashboard-name"></h1>
+        <div id="dashboard-identity"></div>
+      </div>
+      <button id="dashboard-full-sheet" type="button">Full sheet</button>
+    </div>
+    <div id="dashboard-headline-stats" aria-label="Headline character statistics"></div>
+    <div id="dashboard-tabs" role="tablist" aria-label="Character dashboard sections">
+      <button class="dashboard-tab" id="dashboard-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="dashboard-tab-panel" data-dashboard-tab="Overview">Overview</button>
+      <button class="dashboard-tab" id="dashboard-tab-inventory" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="Inventory">Inventory</button>
+      <button class="dashboard-tab" id="dashboard-tab-people" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="People">People</button>
+      <button class="dashboard-tab" id="dashboard-tab-spells" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="Spells">Spells</button>
+      <button class="dashboard-tab" id="dashboard-tab-features" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="Features">Features</button>
+      <button class="dashboard-tab" id="dashboard-tab-notes" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="Notes">Notes</button>
+    </div>
+    <div id="dashboard-tab-panel" role="tabpanel" aria-live="polite" aria-labelledby="dashboard-tab-overview"></div>
+  </section>
+</div>
 
 <!-- Text -->
 <div id="text-scroll">
@@ -5935,15 +6154,21 @@ function _buildPlayerCard(p, solo) {
   const card = document.createElement('div');
   card.className = 'sb-player';
   card.dataset.playerName = p.name;
+  card.setAttribute('role', 'button');
+  card.tabIndex = 0;
 
-  // Portrait with class-icon and initials fallbacks (top-right corner)
-  card.appendChild(_makePlayerPortrait(p, 'sb-class-icon'));
+  // Identity header keeps portrait/fallback separate from live stat widgets.
+  const identityHeader = document.createElement('div');
+  identityHeader.className = 'sb-identity-header';
+  identityHeader.appendChild(_makePlayerPortrait(p, 'sb-class-icon'));
+  const identityCopy = document.createElement('div');
+  identityCopy.className = 'sb-identity-copy';
 
   // Name
   const nameEl = document.createElement('div');
   nameEl.className = 'sb-name';
   nameEl.textContent = p.name || '—';
-  card.appendChild(nameEl);
+  identityCopy.appendChild(nameEl);
 
   // Identity: Race · Class Level
   const identEl = document.createElement('div');
@@ -5963,7 +6188,9 @@ function _buildPlayerCard(p, solo) {
   if (baseClass) line1.push(baseClass + (p.level ? ' ' + p.level : ''));
   identEl.innerHTML = (line1.join(' · ') || '—') +
     (subLine ? `<br><span style="opacity:0.7">${subLine}</span>` : '');
-  card.appendChild(identEl);
+  identityCopy.appendChild(identEl);
+  identityHeader.appendChild(identityCopy);
+  card.appendChild(identityHeader);
 
   // Stat widgets — driven by the active system's UI manifest (systems/<system>/ui.json
   // -> window.GM_UI_MANIFEST), falling back to the built-in D&D 5e default.
@@ -5973,6 +6200,11 @@ function _buildPlayerCard(p, solo) {
   // Direct listener — belt-and-suspenders alongside the delegated sidebar listener
   card.addEventListener('click', function(e) {
     e.stopPropagation();
+    openSheet(p.name);
+  });
+  card.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
     openSheet(p.name);
   });
 
@@ -6001,8 +6233,176 @@ function _smSectionTitle(label, icon) {
 }
 
 let _openSheetName = null;
+let _dashboardPlayerName = null;
+let _dashboardTab = 'Overview';
+
+function _dashboardIdentity(p) {
+  const parts = [];
+  if (p.race) parts.push(p.race);
+  if (p.class) parts.push(p.class + (p.level ? ' ' + p.level : ''));
+  if (p.background) parts.push(p.background);
+  return parts.join('  ·  ');
+}
+
+function _appendDashboardStat(container, label, value) {
+  if (value == null || value === '') return;
+  const stat = document.createElement('div');
+  stat.className = 'dashboard-stat';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'dashboard-stat-label';
+  labelEl.textContent = label;
+  const valueEl = document.createElement('span');
+  valueEl.className = 'dashboard-stat-value';
+  valueEl.textContent = value;
+  stat.append(labelEl, valueEl);
+  container.appendChild(stat);
+}
+
+function _dashboardOverviewCard(label) {
+  const card = document.createElement('section');
+  card.className = 'dashboard-overview-card';
+  const title = document.createElement('span');
+  title.className = 'dashboard-overview-label';
+  title.textContent = label;
+  const body = document.createElement('div');
+  body.className = 'dashboard-overview-value';
+  card.append(title, body);
+  return {card, body};
+}
+
+function _renderDashboardOverview(panel, p) {
+  const grid = document.createElement('div');
+  grid.className = 'dashboard-overview-grid';
+
+  const status = _dashboardOverviewCard('Status');
+  const conditions = Array.isArray(p.conditions) ? p.conditions : [];
+  if (conditions.length) {
+    const list = document.createElement('div');
+    list.className = 'dashboard-condition-list';
+    conditions.forEach(condition => {
+      const pill = document.createElement('span');
+      pill.className = `sb-condition-pill ${_DEFAULT_CONDITION_CLASS[String(condition).toLowerCase()] || 'info'}`;
+      pill.textContent = condition;
+      list.appendChild(pill);
+    });
+    status.body.appendChild(list);
+  } else {
+    status.body.textContent = 'No active conditions';
+  }
+  if (p.concentration) {
+    const concentration = document.createElement('div');
+    concentration.className = 'sb-concentrate';
+    concentration.textContent = `◈ ${p.concentration}`;
+    status.body.appendChild(concentration);
+  }
+  grid.appendChild(status.card);
+
+  const slots = p.spell_slots && typeof p.spell_slots === 'object'
+    ? Object.entries(p.spell_slots).filter(([, value]) => value && value.max)
+    : [];
+  if (slots.length) {
+    const spellCard = _dashboardOverviewCard('Spell slots');
+    slots.sort(([a], [b]) => String(a).localeCompare(String(b), undefined, {numeric: true}));
+    slots.forEach(([level, value]) => {
+      const row = document.createElement('div');
+      row.className = 'dashboard-slot-row';
+      const available = Math.max(0, Math.min(value.max, value.current ?? (value.max - (value.used || 0))));
+      const label = document.createElement('span');
+      label.textContent = `Level ${level}`;
+      const count = document.createElement('strong');
+      count.textContent = `${available}/${value.max}`;
+      row.append(label, count);
+      spellCard.body.appendChild(row);
+    });
+    grid.appendChild(spellCard.card);
+  }
+
+  const details = [];
+  if (p.hp && p.hp.temp) details.push(`Temporary HP: ${p.hp.temp}`);
+  if (p.initiative != null) details.push(`Initiative: ${p.initiative}`);
+  if (p.speed != null) details.push(`Speed: ${p.speed} ft`);
+  if (p.hit_dice && p.hit_dice.die) details.push(`Hit Dice: ${p.hit_dice.remaining ?? '?'}/${p.hit_dice.max ?? '?'} ${p.hit_dice.die}`);
+  if (details.length) {
+    const atGlance = _dashboardOverviewCard('At a glance');
+    details.forEach((detail, index) => {
+      if (index) atGlance.body.appendChild(document.createElement('br'));
+      atGlance.body.appendChild(document.createTextNode(detail));
+    });
+    grid.appendChild(atGlance.card);
+  }
+
+  panel.appendChild(grid);
+}
+
+function _setDashboardTab(tabName) {
+  _dashboardTab = tabName;
+  const panel = document.getElementById('dashboard-tab-panel');
+  const p = _dashboardPlayerName && _playerData[_dashboardPlayerName];
+  document.querySelectorAll('.dashboard-tab').forEach(button => {
+    const selected = button.dataset.dashboardTab === tabName;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected) panel.setAttribute('aria-labelledby', button.id);
+  });
+  panel.replaceChildren();
+  if (!p) return;
+  if (tabName === 'Overview') {
+    _renderDashboardOverview(panel, p);
+    return;
+  }
+  const placeholder = document.createElement('div');
+  placeholder.className = 'dashboard-placeholder';
+  placeholder.textContent = `${tabName} dashboard content is coming in a later phase.`;
+  panel.appendChild(placeholder);
+}
+
+function _renderSelectedDashboard() {
+  const overlay = document.getElementById('dashboard-overlay');
+  const p = _dashboardPlayerName && _playerData[_dashboardPlayerName];
+  if (!p) {
+    _dashboardPlayerName = null;
+    overlay.hidden = true;
+    return;
+  }
+
+  overlay.hidden = false;
+  document.getElementById('dashboard-portrait-slot').replaceChildren(_makePlayerPortrait(p, 'dashboard-portrait'));
+  document.getElementById('dashboard-name').textContent = p.name || '—';
+  document.getElementById('dashboard-identity').textContent = _dashboardIdentity(p) || 'Character details';
+  const stats = document.getElementById('dashboard-headline-stats');
+  stats.replaceChildren();
+  if (p.hp && (p.hp.current != null || p.hp.max != null)) {
+    _appendDashboardStat(stats, 'HP', `${p.hp.current ?? '—'} / ${p.hp.max ?? '—'}`);
+  }
+  _appendDashboardStat(stats, 'AC', p.ac);
+  if (p.xp && p.xp.current != null) {
+    _appendDashboardStat(stats, 'XP', p.xp.next != null ? `${p.xp.current} / ${p.xp.next}` : String(p.xp.current));
+  }
+  document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
+    card.classList.toggle('is-selected', card.dataset.playerName === _dashboardPlayerName);
+  });
+  _setDashboardTab(_dashboardTab);
+}
 
 function openSheet(name) {
+  if (!_playerData[name]) {
+    console.warn(`[DnD] openSheet("${name}"): no player data found.`, 'Available:', Object.keys(_playerData));
+    return;
+  }
+  _dashboardPlayerName = name;
+  _dashboardTab = 'Overview';
+  _renderSelectedDashboard();
+  const shell = document.getElementById('dashboard-shell');
+  shell.focus({preventScroll: true});
+}
+
+function closeDashboard() {
+  document.getElementById('dashboard-overlay').hidden = true;
+  _dashboardPlayerName = null;
+  document.querySelectorAll('.sb-player.is-selected').forEach(card => card.classList.remove('is-selected'));
+}
+
+function openLegacySheet(name) {
   _openSheetName = name;
   const p = _playerData[name];
   if (!p) {
@@ -6278,6 +6678,19 @@ function closeSheet() {
   document.getElementById('sheet-modal').classList.remove('open');
 }
 
+document.getElementById('dashboard-full-sheet').addEventListener('click', () => {
+  if (_dashboardPlayerName) openLegacySheet(_dashboardPlayerName);
+});
+document.getElementById('dashboard-close').addEventListener('click', closeDashboard);
+document.getElementById('dashboard-overlay').addEventListener('click', event => {
+  if (event.target === document.getElementById('dashboard-overlay')) closeDashboard();
+});
+document.getElementById('dashboard-shell').addEventListener('click', event => {
+  event.stopPropagation();
+});
+document.querySelectorAll('.dashboard-tab').forEach(button => {
+  button.addEventListener('click', () => _setDashboardTab(button.dataset.dashboardTab));
+});
 document.getElementById('sheet-close').addEventListener('click', closeSheet);
 document.getElementById('sheet-modal').addEventListener('click', e => {
   if (e.target === document.getElementById('sheet-modal')) closeSheet();
@@ -6427,7 +6840,9 @@ document.getElementById('sidebar').addEventListener('click', function(e) {
   if (card) openSheet(card.dataset.playerName);
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeSheet();
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('sheet-modal').classList.contains('open')) closeSheet();
+  else if (!document.getElementById('dashboard-overlay').hidden) closeDashboard();
 });
 
 // ── Timed effect helpers ──────────────────────────────────────────────────────
@@ -6735,6 +7150,7 @@ function updateStats(stats) {
   }
 
   const names = Object.keys(_playerData);
+  if (hasPlayerSnapshot) _renderSelectedDashboard();
   sidebar.classList.toggle(
     'has-data',
     names.length > 0 || Boolean(stats.turn_order)
@@ -8018,6 +8434,7 @@ function connect() {
       if (questPanelEl) questPanelEl.style.display = 'none';
       const sbEl = document.getElementById('sidebar');
       if (sbEl) sbEl.classList.remove('has-data');
+      closeDashboard();
       const turnSectionEl = document.getElementById('sb-turn-section');
       if (turnSectionEl) turnSectionEl.style.display = 'none';
       _sidebarBtn.classList.remove('visible');
