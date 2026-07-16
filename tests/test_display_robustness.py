@@ -60,7 +60,9 @@ class StdinDecisionTest(unittest.TestCase):
         has_content = bool(args.get("player") or args.get("npc") or args.get("dice")
                            or args.get("tutor") or args.get("action"))
         # OTGM-specific: --set-campaign is body-OPTIONAL, not truly bodyless.
-        truly_bodyless = bool(args.get("milestone_award") or args.get("milestone_spend"))
+        truly_bodyless = bool(
+            args.get("milestone_award") or args.get("milestone_spend") or args.get("xp_event")
+        )
         if has_content:
             return "read"
         if truly_bodyless:
@@ -73,7 +75,7 @@ class StdinDecisionTest(unittest.TestCase):
                              f"--{flag} should always read stdin")
 
     def test_truly_bodyless_skips_stdin(self):
-        for flag in ("milestone_award", "milestone_spend"):
+        for flag in ("milestone_award", "milestone_spend", "xp_event"):
             self.assertEqual(self._decide({flag: "X"}, isatty=False), "skip",
                              f"--{flag.replace('_','-')} should never read stdin")
 
@@ -102,6 +104,9 @@ class StdinDecisionTest(unittest.TestCase):
 
     def test_validate_chunk_payload_accepts_milestone_award(self):
         self.assertEqual(self.send._validate_payload({"milestone_award": "Aldric", "text": "Aldric"}, "chunk"), [])
+
+    def test_validate_chunk_payload_accepts_xp_event(self):
+        self.assertEqual(self.send._validate_payload({"xp_award": {"status": "awarded"}}, "chunk"), [])
 
     def test_validate_chunk_payload_accepts_set_campaign(self):
         """Campaign-only payloads are valid even without text."""

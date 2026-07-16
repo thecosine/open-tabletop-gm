@@ -1,0 +1,1070 @@
+{
+  "schema_version": 1,
+  "portrait_count": 48,
+  "distribution": {
+    "human": 12,
+    "elf": 10,
+    "dwarf": 6,
+    "halfling": 6,
+    "fiend-blooded": 6,
+    "miscellaneous": 8
+  },
+  "portraits": [
+    {
+      "id": "human_001",
+      "file": "portraits/human/human_001.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "blacksmith",
+        "scholar"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 1
+    },
+    {
+      "id": "human_002",
+      "file": "portraits/human/human_002.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "apothecary",
+        "priest"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 2
+    },
+    {
+      "id": "human_003",
+      "file": "portraits/human/human_003.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "innkeeper",
+        "hunter"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 3
+    },
+    {
+      "id": "human_004",
+      "file": "portraits/human/human_004.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "merchant",
+        "farmer"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 4
+    },
+    {
+      "id": "human_005",
+      "file": "portraits/human/human_005.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "guard",
+        "caravaner"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 5
+    },
+    {
+      "id": "human_006",
+      "file": "portraits/human/human_006.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "scholar",
+        "scribe"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 6
+    },
+    {
+      "id": "human_007",
+      "file": "portraits/human/human_007.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "priest",
+        "artisan"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 7
+    },
+    {
+      "id": "human_008",
+      "file": "portraits/human/human_008.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "hunter",
+        "blacksmith"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 8
+    },
+    {
+      "id": "human_009",
+      "file": "portraits/human/human_009.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "farmer",
+        "apothecary"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 9
+    },
+    {
+      "id": "human_010",
+      "file": "portraits/human/human_010.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "caravaner",
+        "innkeeper"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 10
+    },
+    {
+      "id": "human_011",
+      "file": "portraits/human/human_011.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "scribe",
+        "merchant"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 11
+    },
+    {
+      "id": "human_012",
+      "file": "portraits/human/human_012.webp",
+      "ancestry": "human",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "artisan",
+        "guard"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 12
+    },
+    {
+      "id": "elf_001",
+      "file": "portraits/elf/elf_001.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "blacksmith",
+        "scholar"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 13
+    },
+    {
+      "id": "elf_002",
+      "file": "portraits/elf/elf_002.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "apothecary",
+        "priest"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 14
+    },
+    {
+      "id": "elf_003",
+      "file": "portraits/elf/elf_003.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "innkeeper",
+        "hunter"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 15
+    },
+    {
+      "id": "elf_004",
+      "file": "portraits/elf/elf_004.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "merchant",
+        "farmer"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 16
+    },
+    {
+      "id": "elf_005",
+      "file": "portraits/elf/elf_005.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "guard",
+        "caravaner"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 17
+    },
+    {
+      "id": "elf_006",
+      "file": "portraits/elf/elf_006.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "scholar",
+        "scribe"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 18
+    },
+    {
+      "id": "elf_007",
+      "file": "portraits/elf/elf_007.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "priest",
+        "artisan"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 19
+    },
+    {
+      "id": "elf_008",
+      "file": "portraits/elf/elf_008.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "hunter",
+        "blacksmith"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 20
+    },
+    {
+      "id": "dwarf_001",
+      "file": "portraits/dwarf/dwarf_001.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "farmer",
+        "apothecary"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 21
+    },
+    {
+      "id": "dwarf_002",
+      "file": "portraits/dwarf/dwarf_002.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "caravaner",
+        "innkeeper"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 22
+    },
+    {
+      "id": "dwarf_003",
+      "file": "portraits/dwarf/dwarf_003.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "scribe",
+        "merchant"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 23
+    },
+    {
+      "id": "dwarf_004",
+      "file": "portraits/dwarf/dwarf_004.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "artisan",
+        "guard"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 24
+    },
+    {
+      "id": "halfling_001",
+      "file": "portraits/halfling/halfling_001.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "blacksmith",
+        "scholar"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 25
+    },
+    {
+      "id": "halfling_002",
+      "file": "portraits/halfling/halfling_002.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "apothecary",
+        "priest"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 26
+    },
+    {
+      "id": "halfling_003",
+      "file": "portraits/halfling/halfling_003.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "innkeeper",
+        "hunter"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 27
+    },
+    {
+      "id": "halfling_004",
+      "file": "portraits/halfling/halfling_004.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "merchant",
+        "farmer"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 28
+    },
+    {
+      "id": "fiend_blooded_001",
+      "file": "portraits/fiend-blooded/fiend_blooded_001.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "guard",
+        "caravaner"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 29
+    },
+    {
+      "id": "fiend_blooded_002",
+      "file": "portraits/fiend-blooded/fiend_blooded_002.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "scholar",
+        "scribe"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 30
+    },
+    {
+      "id": "fiend_blooded_003",
+      "file": "portraits/fiend-blooded/fiend_blooded_003.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "priest",
+        "artisan"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 31
+    },
+    {
+      "id": "fiend_blooded_004",
+      "file": "portraits/fiend-blooded/fiend_blooded_004.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "hunter",
+        "blacksmith"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 32
+    },
+    {
+      "id": "fiend_blooded_005",
+      "file": "portraits/fiend-blooded/fiend_blooded_005.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "farmer",
+        "apothecary"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 33
+    },
+    {
+      "id": "fiend_blooded_006",
+      "file": "portraits/fiend-blooded/fiend_blooded_006.webp",
+      "ancestry": "fiend-blooded",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "caravaner",
+        "innkeeper"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 34
+    },
+    {
+      "id": "miscellaneous_001",
+      "file": "portraits/miscellaneous/miscellaneous_001.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "scribe",
+        "merchant"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 35
+    },
+    {
+      "id": "miscellaneous_002",
+      "file": "portraits/miscellaneous/miscellaneous_002.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "artisan",
+        "guard"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 36
+    },
+    {
+      "id": "miscellaneous_003",
+      "file": "portraits/miscellaneous/miscellaneous_003.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "blacksmith",
+        "scholar"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 37
+    },
+    {
+      "id": "miscellaneous_004",
+      "file": "portraits/miscellaneous/miscellaneous_004.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "apothecary",
+        "priest"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 38
+    },
+    {
+      "id": "miscellaneous_005",
+      "file": "portraits/miscellaneous/miscellaneous_005.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "innkeeper",
+        "hunter"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 39
+    },
+    {
+      "id": "dwarf_005",
+      "file": "portraits/dwarf/dwarf_005.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "merchant",
+        "farmer"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 40
+    },
+    {
+      "id": "elf_009",
+      "file": "portraits/elf/elf_009.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "guard",
+        "caravaner"
+      ],
+      "mood_tags": [
+        "calm"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 41
+    },
+    {
+      "id": "miscellaneous_006",
+      "file": "portraits/miscellaneous/miscellaneous_006.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "scholar",
+        "scribe"
+      ],
+      "mood_tags": [
+        "warm"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 42
+    },
+    {
+      "id": "miscellaneous_007",
+      "file": "portraits/miscellaneous/miscellaneous_007.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "priest",
+        "artisan"
+      ],
+      "mood_tags": [
+        "stern"
+      ],
+      "social_tags": [
+        "commoner"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 43
+    },
+    {
+      "id": "halfling_005",
+      "file": "portraits/halfling/halfling_005.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "hunter",
+        "blacksmith"
+      ],
+      "mood_tags": [
+        "watchful"
+      ],
+      "social_tags": [
+        "professional"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 44
+    },
+    {
+      "id": "dwarf_006",
+      "file": "portraits/dwarf/dwarf_006.webp",
+      "ancestry": "dwarf",
+      "presentation": "unspecified",
+      "age_band": "young-adult",
+      "profession_tags": [
+        "farmer",
+        "apothecary"
+      ],
+      "mood_tags": [
+        "weary"
+      ],
+      "social_tags": [
+        "traveler"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 45
+    },
+    {
+      "id": "halfling_006",
+      "file": "portraits/halfling/halfling_006.webp",
+      "ancestry": "halfling",
+      "presentation": "unspecified",
+      "age_band": "adult",
+      "profession_tags": [
+        "caravaner",
+        "innkeeper"
+      ],
+      "mood_tags": [
+        "cheerful"
+      ],
+      "social_tags": [
+        "noble"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 46
+    },
+    {
+      "id": "miscellaneous_008",
+      "file": "portraits/miscellaneous/miscellaneous_008.webp",
+      "ancestry": "miscellaneous",
+      "presentation": "unspecified",
+      "age_band": "middle-aged",
+      "profession_tags": [
+        "scribe",
+        "merchant"
+      ],
+      "mood_tags": [
+        "reserved"
+      ],
+      "social_tags": [
+        "clergy"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 47
+    },
+    {
+      "id": "elf_010",
+      "file": "portraits/elf/elf_010.webp",
+      "ancestry": "elf",
+      "presentation": "unspecified",
+      "age_band": "elder",
+      "profession_tags": [
+        "artisan",
+        "guard"
+      ],
+      "mood_tags": [
+        "dangerous"
+      ],
+      "social_tags": [
+        "military"
+      ],
+      "region_tags": [
+        "frontier"
+      ],
+      "assigned_to": null,
+      "source_slot": 48
+    }
+  ]
+}

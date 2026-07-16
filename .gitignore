@@ -43,3 +43,68 @@ probe/results/*.log
 # Draft docs (not ready to publish)
 docs/DISCUSSION-DRAFT.md
 docs/PR-DRAFT.md
+
+# Local backups and temporary copies
+backups/
+*.backup-*
+*.bak
+
+# Runtime files
+*.log
+*.lock
+display/.autorun-poller.lock
+display/autorun-poller.log
+
+# Imported source archives and staging files
+imports/
+
+# Local campaign and generated state
+characters/
+.name_registry.json
+.name_registry.json.*
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local backups and temporary copies
+backups/
+*.backup-*
+*.bak
+
+# Runtime files
+*.log
+*.lock
+display/.autorun-poller.lock
+display/autorun-poller.log
+
+# Import and staging archives
+imports/
+
+# Local campaign state
+characters/
+.name_registry.json
+.name_registry.json.*
+
+# Campaign-specific party portraits
+display/static/portraits/party/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+.venv/

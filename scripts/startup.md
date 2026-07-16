@@ -40,9 +40,13 @@ python3 $SKILL/display/push_stats.py --player NAME \
 python3 $SKILL/display/push_stats.py \
   --factions '[{"name":"FACTION","standing":"Allied"}]'
 
-# Quests (use [] if none). Status: active | threat | resolved | failed
+# Quests (use [] if none). Minimal name/status records remain supported.
+# Rich quest details normally come from state.md through --refresh-quests.
 python3 $SKILL/display/push_stats.py \
   --quests '[{"name":"QUEST","status":"active"}]'
+
+# Explicitly rebuild and broadcast the authoritative campaign quest snapshot.
+python3 $SKILL/display/push_stats.py --refresh-quests
 
 # World time
 python3 $SKILL/display/push_stats.py --world-time \
@@ -52,6 +56,17 @@ python3 $SKILL/display/push_stats.py --world-time \
 python3 $SKILL/display/push_stats.py \
   --turn-order '[{"name":"NAME","initiative":N,"type":"pc"}]' \
   --turn-current "NAME" --turn-round N
+
+# Restore active encounter actors separately from players[]. Unknown HP uses a
+# wound band; exact HP/AC requires hp_known/ac_known or inspected=true.
+python3 $SKILL/display/push_stats.py --encounter-actors '[
+  {"id":"goblin-1","description":"Goblin guard","identity_known":false,
+   "disposition":"hostile","state":"active","wound_band":"Bloodied",
+   "range_band":"Near","initiative":14},
+  {"id":"orc-1","name":"Orc reaver","disposition":"hostile","state":"active",
+   "inspected":true,"hp":{"current":11,"max":23},"ac":15,
+   "conditions":["Prone"],"distance":"30 ft","initiative":10}
+]'
 ```
 
 **Mid-session stat updates (partial — use whenever values change):**
@@ -71,7 +86,15 @@ python3 $SKILL/display/push_stats.py --player NAME --inventory-add "Iron key"
 python3 $SKILL/display/push_stats.py --player NAME --inventory-remove "Potion"
 python3 $SKILL/display/push_stats.py --factions '[...]'   # full replace
 python3 $SKILL/display/push_stats.py --quests '[...]'     # full replace; [] to clear
+python3 $SKILL/display/push_stats.py --refresh-quests      # state.md → local cache → SSE
+python3 $SKILL/display/push_stats.py --encounter-actors '[...]'  # full replace; [] hides panel
 ```
+
+`encounter_actors` is display-safe and separate from `players`. Never put hostiles in
+`players[]`. Do not set `hp_known`, `ac_known`, or `inspected` until that information
+is public, observed, or revealed by an appropriate Inspect. Resolved states
+(`defeated`, `dead`, `escaped`, `inactive`) leave the active list and may remain in
+the collapsed Resolved section until `--encounter-actors '[]'` clears the encounter.
 
 ---
 
@@ -102,6 +125,22 @@ GMEND
 # NPC dialogue
 python3 $SKILL/display/send.py --npc "NPCNAME" << 'GMEND'
 "Dialogue here."
+GMEND
+
+# Player OOC question + GM answer (send in this order)
+python3 $SKILL/display/send.py --player-ooc "NAME" << 'GMEND'
+OOC: Exact submitted question
+GMEND
+python3 $SKILL/display/send.py --gm-ooc << 'GMEND'
+Exact direct answer
+GMEND
+
+# Player META request + GM response (send in this order)
+python3 $SKILL/display/send.py --player-meta "NAME" << 'GMEND'
+META: Exact submitted request
+GMEND
+python3 $SKILL/display/send.py --gm-meta << 'GMEND'
+Exact campaign-management response
 GMEND
 ```
 

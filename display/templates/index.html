@@ -21,12 +21,13 @@
        "dark"  → force dark regardless of system
        "light" → force light regardless of system
        "auto"  → defer to prefers-color-scheme (no data-theme attribute set)
+       "contrast" → force the colorblind-safe high-contrast palette
      Persisted to localStorage["dnd-theme"]; matches the picker logic below. -->
 <script>
   (function () {
     try {
       var v = window.localStorage.getItem('gm-theme');
-      if (v === 'dark' || v === 'light') {
+      if (v === 'dark' || v === 'light' || v === 'contrast') {
         document.documentElement.setAttribute('data-theme', v);
       }
       // 'auto' or missing → leave the attribute off; CSS @media handles it.
@@ -152,10 +153,10 @@
     position: fixed; inset: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 72px 18vw 80px 230px;  /* left: sidebar width + gap */
+    padding: 72px 320px 80px 300px;  /* fixed left/right rails + center narration */
     z-index: 4;
     scroll-behavior: smooth;
-    transition: padding-left 0.4s ease;
+    transition: padding 0.4s ease;
     /* Hide scrollbar but keep scroll */
     scrollbar-width: none;
   }
@@ -282,6 +283,39 @@
     border-left: 1px solid rgba(120, 175, 210, 0.18);
     padding-left: 0.7em;
   }
+
+  /* ── OOC / campaign-management sideband blocks ── */
+  .sideband-block {
+    margin: 0 0 1.4em;
+    padding: 0.75em 1em 0.85em;
+    background: #0b0f14;
+    border: 1px solid #66ccff;
+    border-left-width: 5px;
+    border-radius: 4px;
+    opacity: 0;
+    animation: fadeIn 0.35s ease forwards;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.45);
+  }
+  .sideband-label {
+    margin-bottom: 0.45em;
+    color: #66ccff;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  .sideband-text {
+    margin: 0;
+    color: #f2f5f7;
+    font-size: 0.92em;
+    line-height: 1.55;
+    text-shadow: none;
+    white-space: pre-wrap;
+  }
+  .meta-block .sideband-label { color: #ffd166; }
+  .player-sideband { background: #0f1720; }
+  .gm-sideband { background: #141a22; }
 
   /* ── NPC dialogue blocks ── */
   .npc-block {
@@ -509,48 +543,253 @@
     left: 0;
     top: 60px;
     bottom: 28px;
-    width: 210px;
+    width: 280px;
     z-index: 6;
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
-    background: linear-gradient(to right, rgba(0,0,0,0.6) 70%, transparent);
-    border-right: 1px solid rgba(180,140,60,0.15);
-    padding: 54px 12px 16px 28px;
+    background: linear-gradient(to right, rgba(0,0,0,0.78) 82%, rgba(0,0,0,0.18));
+    border-right: 1px solid rgba(180,140,60,0.28);
+    padding: 54px 18px 18px 28px;
     opacity: 0;
     transition: opacity 0.7s ease, transform 0.4s ease;
     transform: translateX(0);
   }
   #sidebar.has-data { opacity: 1; }
   #sidebar.hidden {
-    transform: translateX(-210px);
+    transform: translateX(-280px);
     opacity: 0;
     pointer-events: none;
   }
   #sidebar::-webkit-scrollbar { display: none; }
 
+  /* ══════════════════════════════════════════════════════════
+     ENCOUNTER SIDEBAR
+     Hostile and encounter-relevant actors only. Never fed from players[].
+     ══════════════════════════════════════════════════════════ */
+  #encounter-panel {
+    position: fixed;
+    right: 0;
+    top: 60px;
+    bottom: 28px;
+    width: 292px;
+    z-index: 7;
+    overflow-y: auto;
+    scrollbar-width: none;
+    box-sizing: border-box;
+    padding: 54px 24px 22px 18px;
+    background: linear-gradient(to left, rgba(7,9,13,0.96) 84%, rgba(7,9,13,0.24));
+    border-left: 1px solid rgba(255,190,70,0.48);
+    opacity: 0;
+    transform: translateX(292px);
+    pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.35s ease;
+  }
+  #encounter-panel::-webkit-scrollbar { display: none; }
+  #encounter-panel.has-data {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+  .encounter-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    color: #ffd166;
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+  }
+  #encounter-count {
+    color: #f2f5f7;
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+  .encounter-card {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: #11161d;
+    border: 1px solid #d94fbb;
+    border-left-width: 5px;
+    border-radius: 4px;
+    box-shadow: 0 5px 16px rgba(0,0,0,0.48);
+  }
+  .encounter-card.neutral { border-color: #ffd166; }
+  .encounter-card.resolved { opacity: 0.72; border-color: #7a8a99; }
+  .encounter-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .encounter-name {
+    color: #f2f5f7;
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+  }
+  .encounter-disposition {
+    flex-shrink: 0;
+    color: #ffd166;
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
+  .encounter-card.hostile .encounter-disposition { color: #ff78dd; }
+  .encounter-state {
+    margin: 6px 0 10px;
+    color: #d8e0e7;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+  }
+  .encounter-hp-row,
+  .encounter-meta-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 7px;
+    color: #c8d1da;
+    font-size: 12px;
+  }
+  .encounter-hp-value,
+  .encounter-meta-value { color: #f2f5f7; font-weight: 700; text-align: right; }
+  .encounter-hp-track {
+    height: 7px;
+    margin-top: 5px;
+    overflow: hidden;
+    background: #27313b;
+    border: 1px solid #7a8a99;
+    border-radius: 4px;
+  }
+  .encounter-hp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #d94fbb, #ffd166);
+    transition: width 0.45s ease;
+  }
+  .encounter-wound-band {
+    margin-top: 7px;
+    padding: 6px 8px;
+    color: #ffd166;
+    background: #1b2028;
+    border: 1px solid #596774;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .encounter-conditions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-top: 10px;
+  }
+  .encounter-condition {
+    padding: 3px 6px;
+    color: #f2f5f7;
+    background: #222b35;
+    border: 1px solid #66ccff;
+    border-radius: 3px;
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+  #encounter-resolved {
+    margin-top: 14px;
+    color: #c8d1da;
+  }
+  #encounter-resolved summary {
+    cursor: pointer;
+    color: #c8d1da;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  #encounter-resolved-list { margin-top: 10px; }
+  #encounter-toggle {
+    display: none;
+    position: fixed;
+    right: 18px;
+    bottom: 22px;
+    z-index: 20;
+    padding: 9px 12px;
+    color: #0b0f14;
+    background: #ffd166;
+    border: 2px solid #f2f5f7;
+    border-radius: 4px;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  body.encounter-active #world-clock,
+  body.encounter-active #audio-controls { right: 318px; }
+
+  @media (max-width: 1300px) {
+    #text-scroll { padding-right: 60px; }
+    body.encounter-active #world-clock,
+    body.encounter-active #audio-controls { right: 28px; }
+    #encounter-panel.has-data:not(.drawer-open) {
+      opacity: 0;
+      transform: translateX(292px);
+      pointer-events: none;
+    }
+    #encounter-toggle.has-data { display: block; }
+  }
+
+  @media (max-width: 700px) {
+    #text-scroll { padding: 72px 18px 100px; }
+    #encounter-panel {
+      left: 0;
+      right: 0;
+      top: auto;
+      bottom: 0;
+      width: 100%;
+      max-height: 62vh;
+      padding: 20px 18px 74px;
+      border-left: none;
+      border-top: 2px solid #ffd166;
+      transform: translateY(100%);
+      background: #0b0f14;
+    }
+    #encounter-panel.has-data { transform: translateY(0); }
+    #encounter-panel.has-data:not(.drawer-open) { transform: translateY(100%); }
+    #encounter-toggle { right: 12px; bottom: 12px; }
+  }
+
   /* ── Player card ── */
   .sb-player {
-    margin-bottom: 14px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid rgba(180,140,60,0.1);
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid rgba(180,140,60,0.22);
   }
   .sb-player:last-of-type { border-bottom: none; margin-bottom: 0; }
 
   .sb-name {
     font-family: 'Cinzel', serif;
-    font-size: 12px;
-    letter-spacing: 2px;
+    font-size: 17px;
+    line-height: 1.25;
+    letter-spacing: 1.5px;
     text-transform: uppercase;
     color: rgba(200,165,80,0.9);
-    margin-bottom: 2px;
+    margin-bottom: 6px;
     padding-right: 34px;
   }
   .sb-identity {
-    font-size: 10px;
-    color: rgba(200,185,150,0.5);
-    line-height: 1.4;
-    margin-bottom: 8px;
+    font-size: 13px;
+    color: rgba(225,228,232,0.82);
+    line-height: 1.5;
+    margin-bottom: 12px;
     padding-right: 34px;
   }
 
@@ -558,38 +797,39 @@
   .sb-hp-row {
     display: flex;
     align-items: center;
-    margin-bottom: 3px;
+    margin-bottom: 6px;
   }
   .sb-label {
     font-family: 'Cinzel', serif;
-    font-size: 8px;
-    letter-spacing: 2px;
+    font-size: 13px;
+    letter-spacing: 1.2px;
     text-transform: uppercase;
-    color: rgba(180,140,60,0.5);
-    margin-left: 5px;
+    color: rgba(235,190,85,0.92);
+    margin-left: 7px;
   }
   .sb-hp-nums {
     font-family: 'Cinzel', serif;
-    font-size: 10px;
-    color: rgba(220,200,160,0.75);
+    font-size: 14px;
+    color: rgba(245,247,249,0.96);
     margin-left: auto;
   }
   .sb-bar-track {
-    height: 3px;
-    background: rgba(255,255,255,0.07);
-    border-radius: 2px;
+    height: 9px;
+    background: rgba(255,255,255,0.16);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 5px;
     overflow: hidden;
-    margin-bottom: 3px;
+    margin-bottom: 10px;
   }
   .sb-bar-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: 4px;
     transition: width 0.6s ease, background-color 0.6s ease;
   }
   .sb-hp-temp-row {
-    font-size: 9px;
+    font-size: 13px;
     color: rgba(120,180,230,0.6);
-    margin-bottom: 3px;
+    margin-bottom: 10px;
   }
 
   /* ── XP row ── */
@@ -609,32 +849,32 @@
 
   /* ── Quick stats (AC · Init · Speed) ── */
   .sb-quick-stats {
-    margin-top: 6px;
+    margin-top: 12px;
     font-family: 'Cinzel', serif;
-    font-size: 9px;
+    font-size: 13px;
     letter-spacing: 1px;
-    color: rgba(200,185,150,0.55);
-    line-height: 1.8;
+    color: rgba(235,190,85,0.92);
+    line-height: 1.75;
   }
   .sb-quick-stats span.val {
-    color: rgba(220,200,160,0.8);
-    margin-right: 8px;
+    color: rgba(245,247,249,0.96);
+    margin-right: 10px;
   }
 
   /* ── Conditions ── */
   .sb-conditions {
-    margin-top: 5px;
+    margin-top: 12px;
     display: flex;
     flex-wrap: wrap;
-    gap: 3px;
+    gap: 6px;
   }
   .sb-condition-pill {
     font-family: 'Cinzel', serif;
-    font-size: 7px;
-    letter-spacing: 0.5px;
+    font-size: 13px;
+    letter-spacing: 0.4px;
     text-transform: uppercase;
-    padding: 1px 5px;
-    border-radius: 2px;
+    padding: 3px 7px;
+    border-radius: 3px;
     border: 1px solid;
   }
   .sb-condition-pill.danger {
@@ -659,8 +899,8 @@
   }
   /* Concentration tag */
   .sb-concentrate {
-    margin-top: 4px;
-    font-size: 8px;
+    margin-top: 10px;
+    font-size: 13px;
     color: rgba(160,120,220,0.75);
     font-style: italic;
     white-space: nowrap;
@@ -1016,6 +1256,13 @@
     opacity: 0;
     animation: fadeIn 0.5s ease 0.1s forwards;
   }
+  .xp-heading {
+    font: 700 10px/1.2 'Cinzel', serif;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #ffd166;
+    margin-bottom: 4px;
+  }
   .xp-line {
     font-size: 12px; font-family: 'Cinzel', serif;
     letter-spacing: 1px; color: rgba(140,200,120,0.7);
@@ -1084,18 +1331,24 @@
   }
 
   /* ── Spell slots (sidebar) ── */
-  .sb-slots { margin-top: 5px; }
-  .sb-slot-row { display: flex; align-items: center; gap: 3px; margin-bottom: 2px; }
+  .sb-slots { margin-top: 12px; }
+  .sb-slot-row { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
   .sb-slot-level {
-    font-family: 'Cinzel', serif; font-size: 7px;
-    color: rgba(160,120,220,0.5); width: 14px; text-align: right; flex-shrink: 0;
+    font-family: 'Cinzel', serif; font-size: 13px;
+    color: rgba(205,180,255,0.95); min-width: 64px; flex-shrink: 0;
   }
   .sb-slot-pip {
-    width: 6px; height: 6px; border-radius: 50%; border: 1px solid;
+    width: 10px; height: 10px; border-radius: 50%; border: 2px solid;
     flex-shrink: 0;
   }
   .sb-slot-pip.avail { background: rgba(160,120,220,0.6); border-color: rgba(160,120,220,0.6); }
   .sb-slot-pip.spent { background: transparent; border-color: rgba(160,120,220,0.18); }
+  .sb-slot-count {
+    margin-left: auto;
+    font-family: 'Cinzel', serif;
+    font-size: 13px;
+    color: rgba(245,247,249,0.96);
+  }
 
   /* ── Faction panel (sidebar) ── */
   #sb-factions {
@@ -1137,7 +1390,13 @@
   }
   .sb-quest-item {
     display: flex; justify-content: space-between; align-items: baseline;
-    gap: 6px; padding: 2px 0;
+    gap: 6px; width: 100%; padding: 2px 0;
+    color: inherit; background: transparent; border: 0;
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .sb-quest-item:focus-visible {
+    outline: 3px solid #66ccff;
+    outline-offset: 3px;
   }
   .sb-quest-name {
     font-size: 9px; color: rgba(200,185,150,0.6);
@@ -1152,6 +1411,105 @@
   .sb-quest-status.resolved { color: rgba(80,200,130,0.70); }
   .sb-quest-status.failed   { color: rgba(200,100,80,0.50); }
   .sb-quest-status.unknown  { color: rgba(200,185,150,0.25); }
+
+  /* ── Browser-local quest detail modal ── */
+  #quest-modal {
+    width: min(620px, calc(100vw - 32px));
+    max-height: min(82vh, 760px);
+    padding: 0;
+    color: #f2f5f7;
+    background: #141a22;
+    border: 2px solid #7a8a99;
+    border-radius: 5px;
+    box-shadow: 0 18px 70px rgba(0,0,0,0.9);
+    overflow: hidden;
+  }
+  #quest-modal::backdrop { background: rgba(11,15,20,0.88); }
+  #quest-panel {
+    position: relative;
+    max-height: min(82vh, 760px);
+    padding: 30px 34px 34px;
+    overflow-y: auto;
+    box-sizing: border-box;
+    scrollbar-color: #66ccff #0b0f14;
+  }
+  #quest-close {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    min-width: 34px;
+    min-height: 34px;
+    color: #f2f5f7;
+    background: #0b0f14;
+    border: 1px solid #7a8a99;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  #quest-close:hover { color: #0b0f14; background: #66ccff; border-color: #f2f5f7; }
+  .quest-modal-eyebrow {
+    margin: 0 48px 6px 0;
+    color: #ffd166;
+    font-family: 'Cinzel', serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  #quest-modal-title {
+    margin: 0 48px 10px 0;
+    color: #66ccff;
+    font-family: 'Cinzel', serif;
+    font-size: 21px;
+    line-height: 1.3;
+  }
+  #quest-modal-status {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 3px 7px;
+    color: #c8d1da;
+    background: #0b0f14;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  #quest-modal-status.active { color: #66ccff; }
+  #quest-modal-status.resolved { color: #c8d1da; }
+  #quest-modal-status.threat { color: #ffd166; }
+  #quest-modal-status.failed { color: #ff78dd; }
+  .quest-modal-section { margin-top: 18px; }
+  .quest-modal-label {
+    margin-bottom: 6px;
+    color: #ffd166;
+    font-family: 'Cinzel', serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
+  #quest-modal-description,
+  #quest-modal-objectives {
+    color: #f2f5f7;
+    font-size: 14px;
+    line-height: 1.65;
+    white-space: pre-wrap;
+  }
+  #quest-modal-objectives { margin: 0; padding-left: 22px; }
+  #quest-modal-objectives li { margin: 7px 0; }
+  #quest-modal-empty { color: #c8d1da; font-size: 14px; line-height: 1.6; }
+  #quest-modal-updated {
+    margin-top: 24px;
+    color: #c8d1da;
+    font-size: 11px;
+  }
+  @media (max-width: 700px) {
+    #quest-modal { width: calc(100vw - 20px); max-height: 88dvh; }
+    #quest-panel { max-height: 88dvh; padding: 24px 20px 28px; }
+    #quest-modal-title { font-size: 18px; }
+  }
 
   /* ── Relationships (sheet modal) ── */
   .sm-relationship { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; }
@@ -1769,18 +2127,114 @@
   }
   #corner-logo:hover { opacity: 1; pointer-events: all; }
 
-  /* ── Dice block icon ── */
+  /* ── Accessible inline-SVG dice results ── */
   .dice-block {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 14px;
   }
-  .dice-block-icon {
-    width: 48px; height: 48px;
-    opacity: 0.65;
+  .dice-results {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .dice-roll-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 10px;
+    max-width: 100%;
+  }
+  .die-roll-item {
+    width: 68px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
     flex-shrink: 0;
-    filter: drop-shadow(0 0 8px rgba(177,77,255,0.55));
+    font-family: 'Cinzel', serif;
+  }
+  .die-roll-item.discarded { opacity: 0.72; }
+  .die-roll-svg {
+    width: 62px;
+    height: 62px;
+    overflow: visible;
+  }
+  .die-face-outline,
+  .die-face-inner,
+  .die-face-facet {
+    fill: #0b0f14;
+    stroke: #66ccff;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .die-face-outline { stroke-width: 2; }
+  .die-face-inner {
+    display: none;
+    fill: none;
+    stroke: #ffd166;
+    stroke-width: 2;
+  }
+  .die-face-facet {
+    fill: none;
+    stroke: #7a8a99;
+    stroke-width: 1;
+    opacity: 0.8;
+  }
+  .die-roll-item.kept .die-face-outline {
+    fill: #141a22;
+    stroke: #f2f5f7;
+    stroke-width: 5;
+  }
+  .die-roll-item.kept .die-face-inner { display: block; }
+  .die-roll-item.discarded .die-face-outline { stroke-width: 2; }
+  .die-svg-value {
+    fill: #f2f5f7;
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    pointer-events: none;
+  }
+  .die-svg-value {
+    font-size: 30px;
+    stroke: #0b0f14;
+    stroke-width: 4px;
+    paint-order: stroke fill;
+  }
+  .die-roll-state {
+    min-height: 11px;
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.8px;
+    color: #ffd166;
+    text-align: center;
+  }
+  .die-roll-item.kept .die-roll-state {
+    color: #f2f5f7;
+    text-decoration: underline double #ffd166;
+    text-underline-offset: 2px;
+  }
+  .dice-math {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 100%;
+  }
+  .dice-math .dice-result { display: block; }
+  .dice-math .dice-result:last-child {
+    border-width: 2px;
+    color: #f2f5f7;
+  }
+  @media (max-width: 700px) {
+    .dice-roll-row { gap: 7px 8px; }
+    .die-roll-item { width: 62px; }
+    .die-roll-svg { width: 56px; height: 56px; }
+    .dice-result { letter-spacing: 1px; }
   }
 
   /* ── Sidebar row icons ── */
@@ -1819,6 +2273,19 @@
     transition: opacity 0.2s;
   }
   .sb-player:hover .sb-class-icon { opacity: 0.6; }
+  .class-icon-fallback {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    border: 1px solid #66ccff;
+    border-radius: 50%;
+    background: #0b0f14;
+    color: #ffd166;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
   .sm-header-icon {
     position: absolute;
     top: 44px; right: 34px;
@@ -1826,6 +2293,11 @@
     opacity: 0.5;
     filter: drop-shadow(0 0 14px rgba(177,77,255,0.55));
     pointer-events: none;
+  }
+  .sm-header-icon.class-icon-fallback {
+    border-width: 2px;
+    font-size: 26px;
+    letter-spacing: 2px;
   }
 
   /* ── Sheet modal section icons ── */
@@ -1841,6 +2313,8 @@
   body.input-only #text-scroll,
   body.input-only #sidebar,
   body.input-only #sidebar-toggle,
+  body.input-only #encounter-panel,
+  body.input-only #encounter-toggle,
   body.input-only #world-clock,
   body.input-only #ruleset-badge,
   body.input-only #audio-controls,
@@ -2402,6 +2876,486 @@
   }
 
   /* ────────────────────────────────────────────────────────────────────
+   * HIGH-CONTRAST / COLORBLIND-SAFE THEME
+   * Neutral near-black surfaces, near-white copy, cyan interaction, and
+   * amber secondary accents. Status remains explicit in text and icons.
+   * ──────────────────────────────────────────────────────────────────── */
+  :root[data-theme="contrast"] body {
+    background: #0b0f14;
+    color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .bg-layer { opacity: 0.12 !important; }
+  :root[data-theme="contrast"] #vignette {
+    background: radial-gradient(ellipse at 50% 45%, rgba(11,15,20,0.2) 20%, #0b0f14 100%);
+  }
+  :root[data-theme="contrast"] #frame {
+    border-color: #7a8a99;
+    box-shadow: inset 0 0 0 1px #141a22;
+  }
+  :root[data-theme="contrast"] #frame::before,
+  :root[data-theme="contrast"] #frame::after { border-color: #ffd166; }
+  :root[data-theme="contrast"] #scene-indicator,
+  :root[data-theme="contrast"] #world-clock { color: #ffd166; }
+  :root[data-theme="contrast"] #text-content {
+    background: #141a22;
+    border: 2px solid #7a8a99;
+    border-radius: 5px;
+    padding: 32px 40px;
+    color: #f2f5f7;
+    box-shadow: 0 0 0 1px #0b0f14, 0 10px 40px rgba(0,0,0,0.75);
+  }
+  :root[data-theme="contrast"] .dm-block p,
+  :root[data-theme="contrast"] .dm-block table.dm-table,
+  :root[data-theme="contrast"] .npc-block p {
+    color: #f2f5f7;
+    text-shadow: none;
+  }
+  :root[data-theme="contrast"] .dm-block p em,
+  :root[data-theme="contrast"] .npc-name,
+  :root[data-theme="contrast"] .npc-block p em { color: #ffd166; }
+  :root[data-theme="contrast"] .player-block {
+    border-left: 4px solid #66ccff;
+    background: #0f1720;
+    padding: 0.7em 1em;
+  }
+  :root[data-theme="contrast"] .player-name,
+  :root[data-theme="contrast"] .player-block p,
+  :root[data-theme="contrast"] .action-tag,
+  :root[data-theme="contrast"] .action-block p {
+    color: #c8d1da;
+    text-shadow: none;
+  }
+  :root[data-theme="contrast"] .action-block p { border-left: 2px solid #66ccff; }
+
+  :root[data-theme="contrast"] #sidebar {
+    background: linear-gradient(to right, rgba(11,15,20,0.98) 84%, rgba(11,15,20,0.72));
+    border-right-color: #7a8a99;
+  }
+  :root[data-theme="contrast"] #encounter-panel {
+    background: #0b0f14;
+    border-color: #ffd166;
+  }
+  :root[data-theme="contrast"] .encounter-card {
+    background: #141a22;
+    border-color: #ff78dd;
+  }
+  :root[data-theme="contrast"] .encounter-card.neutral { border-color: #ffd166; }
+  :root[data-theme="contrast"] .encounter-name,
+  :root[data-theme="contrast"] .encounter-hp-value,
+  :root[data-theme="contrast"] .encounter-meta-value { color: #f2f5f7; }
+  :root[data-theme="contrast"] .sb-player { border-bottom-color: #53606c; }
+  :root[data-theme="contrast"] .sb-name,
+  :root[data-theme="contrast"] .sb-label,
+  :root[data-theme="contrast"] .sb-quick-stats { color: #ffd166; }
+  :root[data-theme="contrast"] .sb-identity { color: #c8d1da; }
+  :root[data-theme="contrast"] .sb-hp-nums,
+  :root[data-theme="contrast"] .sb-quick-stats span.val,
+  :root[data-theme="contrast"] .sb-slot-count { color: #f2f5f7; }
+  :root[data-theme="contrast"] .sb-bar-track {
+    background: #27313b;
+    border-color: #7a8a99;
+  }
+  :root[data-theme="contrast"] .sb-slot-level { color: #d8c5ff; }
+  :root[data-theme="contrast"] .sb-slot-pip.avail {
+    background: #66ccff;
+    border-color: #dff5ff;
+  }
+  :root[data-theme="contrast"] .sb-slot-pip.spent {
+    background: transparent;
+    border-color: #aab5bf;
+  }
+
+  /* Character sheet modal */
+  :root[data-theme="contrast"] #sheet-modal {
+    background: rgba(11,15,20,0.92);
+  }
+  :root[data-theme="contrast"] #sheet-panel {
+    color-scheme: dark;
+    color: #f2f5f7;
+    background: #141a22;
+    border: 2px solid #7a8a99;
+    box-shadow: 0 0 0 1px #0b0f14, 0 18px 70px rgba(0,0,0,0.9);
+    scrollbar-color: #66ccff #0b0f14;
+  }
+  :root[data-theme="contrast"] #sheet-content {
+    color: #f2f5f7;
+    line-height: 1.5;
+  }
+  :root[data-theme="contrast"] #sheet-panel::-webkit-scrollbar { width: 12px; }
+  :root[data-theme="contrast"] #sheet-panel::-webkit-scrollbar-track { background: #0b0f14; }
+  :root[data-theme="contrast"] #sheet-panel::-webkit-scrollbar-thumb {
+    background: #66ccff;
+    border: 3px solid #0b0f14;
+    border-radius: 8px;
+  }
+  :root[data-theme="contrast"] #sheet-close {
+    color: #f2f5f7;
+    background: #0b0f14;
+    border: 1px solid #7a8a99;
+    border-radius: 4px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+  :root[data-theme="contrast"] #sheet-close:hover {
+    color: #0b0f14;
+    background: #66ccff;
+    border-color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .sm-name,
+  :root[data-theme="contrast"] .sm-section-title {
+    color: #ffd166;
+    text-shadow: none;
+  }
+  :root[data-theme="contrast"] .sm-section-title { font-size: 12px; }
+  :root[data-theme="contrast"] .sm-identity,
+  :root[data-theme="contrast"] .sm-spell-meta,
+  :root[data-theme="contrast"] .sm-feature-text,
+  :root[data-theme="contrast"] .sm-rel-note,
+  :root[data-theme="contrast"] .sm-no-data {
+    color: #c8d1da;
+  }
+  :root[data-theme="contrast"] .sm-identity { font-size: 13px; }
+  :root[data-theme="contrast"] .sm-divider {
+    height: 2px;
+    background: #7a8a99;
+  }
+  :root[data-theme="contrast"] .sm-stat-label,
+  :root[data-theme="contrast"] .sm-ab-name {
+    color: #c8d1da;
+    font-size: 10px;
+  }
+  :root[data-theme="contrast"] .sm-stat-val,
+  :root[data-theme="contrast"] .sm-ab-score,
+  :root[data-theme="contrast"] .sm-ab-mod,
+  :root[data-theme="contrast"] .sm-xp {
+    color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .sm-stat-label { font-size: 10px; }
+  :root[data-theme="contrast"] .sm-stat-val { font-size: 16px; }
+  :root[data-theme="contrast"] .sm-ab-score { font-size: 17px; }
+  :root[data-theme="contrast"] .sm-ab-mod,
+  :root[data-theme="contrast"] .sm-xp { font-size: 12px; }
+  :root[data-theme="contrast"] .sm-ab-cell {
+    background: #0b0f14;
+    border: 1px solid #7a8a99;
+    border-radius: 3px;
+    padding: 7px 4px;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table {
+    color: #f2f5f7;
+    border: 1px solid #7a8a99;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table th {
+    color: #ffd166;
+    background: #0b0f14;
+    border-bottom: 2px solid #7a8a99;
+    padding: 8px 10px;
+    font-size: 10px;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table td {
+    color: #f2f5f7;
+    background: #141a22;
+    border-bottom: 1px solid #7a8a99;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table tbody tr:nth-child(even) td {
+    background: #0b0f14;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table td.atk-name,
+  :root[data-theme="contrast"] .atk-name[data-srd-name] {
+    color: #66ccff;
+  }
+  :root[data-theme="contrast"] .sm-attacks-table td.atk-notes { color: #c8d1da; }
+  :root[data-theme="contrast"] .atk-name[data-srd-name]:hover {
+    color: #f2f5f7;
+    text-decoration-color: #66ccff;
+  }
+  :root[data-theme="contrast"] .sm-sub-label,
+  :root[data-theme="contrast"] .sm-sub-label.cantrip-label,
+  :root[data-theme="contrast"] .sm-sub-label.prepared-label,
+  :root[data-theme="contrast"] .sm-feature-name,
+  :root[data-theme="contrast"] .sm-rel-name {
+    color: #ffd166;
+  }
+  :root[data-theme="contrast"] .sm-spell-tag,
+  :root[data-theme="contrast"] .sm-spell-tag.cantrip {
+    color: #f2f5f7;
+    background: #0b0f14;
+    border-color: #7a8a99;
+  }
+  :root[data-theme="contrast"] .sm-spell-tag:hover,
+  :root[data-theme="contrast"] .sm-spell-tag.cantrip:hover {
+    color: #0b0f14;
+    background: #66ccff;
+    border-color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .sm-feature-name[data-srd-name]:hover,
+  :root[data-theme="contrast"] .sm-inventory-list li[data-srd-name]:hover {
+    color: #66ccff;
+  }
+  :root[data-theme="contrast"] .sm-inventory-list {
+    color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .sm-inventory-list li {
+    color: #f2f5f7;
+    border-bottom: 1px solid #7a8a99;
+    padding: 5px 0;
+    font-size: 13px;
+  }
+  :root[data-theme="contrast"] .sm-inventory-list li::before { color: #ffd166; }
+  :root[data-theme="contrast"] .sm-rel-role { color: #66ccff; }
+
+  /* Nested inventory/rules detail popup */
+  :root[data-theme="contrast"] #srd-modal {
+    background: rgba(11,15,20,0.88);
+    opacity: 1;
+    isolation: isolate;
+  }
+  :root[data-theme="contrast"] #srd-panel {
+    color: #f2f5f7;
+    background: #141a22;
+    border: 2px solid #7a8a99;
+    box-shadow: 0 0 0 1px #0b0f14, 0 18px 70px rgba(0,0,0,0.9);
+    scrollbar-color: #66ccff #0b0f14;
+    opacity: 1;
+    filter: none;
+  }
+  :root[data-theme="contrast"] #srd-body {
+    color: #f2f5f7;
+    font-size: 13px;
+    line-height: 1.65;
+    opacity: 1;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-title {
+    color: #66ccff;
+    font-size: 17px;
+    font-weight: 700;
+  }
+  :root[data-theme="contrast"] #srd-category-badge {
+    color: #ffd166;
+    font-size: 11px;
+    font-weight: 700;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-meta {
+    color: #c8d1da;
+    font-size: 12px;
+    opacity: 1;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-desc { color: #f2f5f7; }
+  :root[data-theme="contrast"] #srd-loading,
+  :root[data-theme="contrast"] #srd-not-found,
+  :root[data-theme="contrast"] .srd-supplement-note {
+    color: #c8d1da;
+    opacity: 1;
+  }
+  :root[data-theme="contrast"] #srd-close {
+    color: #f2f5f7;
+    background: #0b0f14;
+    border: 1px solid #7a8a99;
+    border-radius: 4px;
+    min-width: 32px;
+    min-height: 32px;
+    opacity: 1;
+  }
+  :root[data-theme="contrast"] #srd-close:hover {
+    color: #0b0f14;
+    background: #66ccff;
+    border-color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-external-link {
+    color: #66ccff;
+    font-size: 12px;
+    font-weight: 700;
+    opacity: 1;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-external-link:hover {
+    color: #f2f5f7;
+    text-decoration-color: #ffd166;
+  }
+  :root[data-theme="contrast"] #srd-body .srd-external-link:focus-visible {
+    outline: 3px solid #f2f5f7;
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  /* Quest tracker */
+  :root[data-theme="contrast"] #sb-quests {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 2px solid #7a8a99;
+  }
+  :root[data-theme="contrast"] .sb-quests-header {
+    color: #ffd166;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: 2px;
+    margin-bottom: 10px;
+  }
+  :root[data-theme="contrast"] #sb-quests .sb-quest-item {
+    align-items: flex-start;
+    gap: 8px;
+    min-height: 34px;
+    padding: 8px 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid #53606c;
+    line-height: 1.45;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  :root[data-theme="contrast"] #sb-quests .sb-quest-item:hover {
+    background: #0f1720;
+    border-bottom-color: #66ccff;
+  }
+  :root[data-theme="contrast"] .sb-quest-name {
+    color: #f2f5f7;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+  :root[data-theme="contrast"] .sb-quest-status {
+    flex-shrink: 0;
+    color: #c8d1da;
+    background: #0b0f14;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: 0.6px;
+  }
+  :root[data-theme="contrast"] .sb-quest-status.active   { color: #66ccff; }
+  :root[data-theme="contrast"] .sb-quest-status.resolved { color: #c8d1da; }
+  :root[data-theme="contrast"] .sb-quest-status.threat   { color: #ffd166; }
+  :root[data-theme="contrast"] .sb-quest-status.failed   { color: #ff78dd; }
+  :root[data-theme="contrast"] .sb-quest-status.unknown  { color: #c8d1da; }
+
+  :root[data-theme="contrast"] .sheet-section-icon {
+    color: #66ccff;
+    filter: none;
+    fill: none;
+    stroke: currentColor;
+  }
+  :root[data-theme="contrast"] .sm-header-icon.class-icon-fallback {
+    color: #ffd166;
+    background: #0b0f14;
+    border-color: #66ccff;
+    box-shadow: 0 0 0 2px #141a22;
+    filter: none;
+    opacity: 0.9;
+  }
+
+  :root[data-theme="contrast"] #input-panel {
+    background: #141a22;
+    border: 2px solid #7a8a99;
+    backdrop-filter: none;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+  }
+  :root[data-theme="contrast"] #input-panel:focus-within { border-color: #66ccff; }
+  :root[data-theme="contrast"] #input-panel-label,
+  :root[data-theme="contrast"] #input-toggle-arrow,
+  :root[data-theme="contrast"] .staged-char,
+  :root[data-theme="contrast"] .staged-text { color: #f2f5f7; }
+  :root[data-theme="contrast"] #input-badge {
+    color: #0b0f14;
+    background: #66ccff;
+    border: 2px solid #f2f5f7;
+    font-weight: 700;
+  }
+  :root[data-theme="contrast"] #player-input-text,
+  :root[data-theme="contrast"] #dp-label {
+    color: #f2f5f7;
+    background: #0f1720;
+    border: 2px solid #7a8a99;
+    outline: none;
+  }
+  :root[data-theme="contrast"] #player-input-text::placeholder,
+  :root[data-theme="contrast"] #dp-label::placeholder { color: #c8d1da; opacity: 1; }
+
+  :root[data-theme="contrast"] button,
+  :root[data-theme="contrast"] .char-tab,
+  :root[data-theme="contrast"] .speed-label,
+  :root[data-theme="contrast"] .narrate-label,
+  :root[data-theme="contrast"] .theme-label {
+    color: #f2f5f7;
+    background: #0f1720;
+    border-color: #66ccff;
+  }
+  :root[data-theme="contrast"] button:hover:not(:disabled),
+  :root[data-theme="contrast"] .char-tab:hover,
+  :root[data-theme="contrast"] .audio-row:hover .theme-label,
+  :root[data-theme="contrast"] .theme-label:hover {
+    color: #0b0f14;
+    background: #66ccff;
+    border-color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] .char-tab.active,
+  :root[data-theme="contrast"] .ready-btn.is-ready {
+    color: #0b0f14;
+    background: #66ccff;
+    border: 2px double #f2f5f7;
+    font-weight: 700;
+  }
+  :root[data-theme="contrast"] .staged-entry {
+    color: #f2f5f7;
+    background: #141a22;
+    border: 1px solid #7a8a99;
+    border-left: 5px solid #66ccff;
+  }
+  :root[data-theme="contrast"] .staged-entry.is-ready {
+    border: 2px double #66ccff;
+    border-left-width: 5px;
+  }
+  :root[data-theme="contrast"] .staged-entry::after {
+    content: "STAGED";
+    align-self: center;
+    color: #f2f5f7;
+    background: #0f1720;
+    border: 1px solid #66ccff;
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-family: 'Cinzel', serif;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  :root[data-theme="contrast"] .staged-entry.is-ready::after {
+    content: "✓ READY";
+    color: #0b0f14;
+    background: #66ccff;
+    border-color: #f2f5f7;
+  }
+  :root[data-theme="contrast"] #waiting-indicator,
+  :root[data-theme="contrast"] #waiting-indicator .queue-label,
+  :root[data-theme="contrast"] #waiting-indicator .queue-check,
+  :root[data-theme="contrast"] #autorun-indicator { color: #f2f5f7; }
+  :root[data-theme="contrast"] .queue-check { font-weight: 700; }
+  :root[data-theme="contrast"] .autorun-track { stroke: #7a8a99; }
+  :root[data-theme="contrast"] .autorun-fill,
+  :root[data-theme="contrast"] .autorun-fill.waiting { stroke: #66ccff; }
+
+  :root[data-theme="contrast"] :is(button, textarea, input):disabled {
+    color: #88939e;
+    border-color: #7a8a99;
+    opacity: 1;
+  }
+
+  :root[data-theme="contrast"] :is(button, textarea, input, [role="button"], [tabindex]):focus-visible {
+    outline: 3px solid #ffffff !important;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 2px #0b0f14;
+  }
+  :root[data-theme="contrast"] #theme-row:focus-visible { border-radius: 4px; }
+
+  /* ────────────────────────────────────────────────────────────────────
    * VELLUM / LIGHT-MODE THEME OVERRIDES
    *
    * Carries the parchment palette decided on the Neural Initiative side
@@ -2960,7 +3914,9 @@
     <span class="audio-label">Auto Narrate</span>
     <span id="narrate-label" class="narrate-label">Off</span>
   </div>
-  <div class="audio-row" id="theme-row" title="Display theme — Dark / Light / Auto (system)">
+  <div class="audio-row" id="theme-row" role="button" tabindex="0"
+       aria-label="Display theme. Click or press Enter to cycle Dark, Light, Auto, and High Contrast Dark."
+       title="Display theme — Dark / Light / Auto / High Contrast Dark">
     <span class="audio-label">Theme</span>
     <span id="theme-label" class="theme-label">Dark</span>
   </div>
@@ -3076,18 +4032,37 @@
 <!-- Character sheet modal (click any player card in the sidebar to open) -->
 <div id="sheet-modal">
   <div id="sheet-panel">
-    <button id="sheet-close" title="Close (Esc)">✕</button>
+    <button id="sheet-close" title="Close (Esc)" aria-label="Close character sheet">✕</button>
     <div id="sheet-content"></div>
   </div>
 </div>
 
 <div id="srd-modal">
-  <div id="srd-panel">
-    <button id="srd-close" title="Close">✕</button>
+  <div id="srd-panel" role="dialog" aria-modal="true" aria-label="Item and rules details">
+    <button id="srd-close" type="button" title="Close item details" aria-label="Close item details">✕</button>
     <div id="srd-category-badge"></div>
     <div id="srd-body"></div>
   </div>
 </div>
+
+<dialog id="quest-modal" aria-labelledby="quest-modal-title">
+  <div id="quest-panel">
+    <button id="quest-close" type="button" aria-label="Close quest details">✕</button>
+    <div class="quest-modal-eyebrow">Quest Details</div>
+    <h2 id="quest-modal-title"></h2>
+    <div id="quest-modal-status"></div>
+    <div id="quest-modal-description-section" class="quest-modal-section">
+      <div class="quest-modal-label">Description</div>
+      <div id="quest-modal-description"></div>
+    </div>
+    <div id="quest-modal-objectives-section" class="quest-modal-section">
+      <div class="quest-modal-label">Objectives</div>
+      <ul id="quest-modal-objectives"></ul>
+    </div>
+    <div id="quest-modal-empty">No additional player-facing details are available.</div>
+    <div id="quest-modal-updated"></div>
+  </div>
+</dialog>
 
 <!-- Character sidebar -->
 <div id="sidebar">
@@ -3106,6 +4081,17 @@
     <div class="sb-quests-header">Quests</div>
   </div>
 </div>
+
+<!-- Encounter sidebar — explicit encounter_actors only, never players[] -->
+<button id="encounter-toggle" type="button" aria-controls="encounter-panel" aria-expanded="false">Encounter</button>
+<aside id="encounter-panel" aria-label="Active encounter">
+  <div class="encounter-heading">Encounter <span id="encounter-count">0 active</span></div>
+  <div id="encounter-active"></div>
+  <details id="encounter-resolved" style="display:none">
+    <summary>Resolved</summary>
+    <div id="encounter-resolved-list"></div>
+  </details>
+</aside>
 
 <!-- Text -->
 <div id="text-scroll">
@@ -3909,22 +4895,34 @@ function startTyping() {
 
 // ── Block type badge detection ───────────────────────────────────────────────
 // ── Class icon mapping ──────────────────────────────────────────────
-const _CLASS_ICONS = {
-  barbarian: 'class_barbarian', bard:      'class_bard',
-  cleric:    'class_cleric',    druid:     'class_druid',
-  fighter:   'class_fighter',   monk:      'class_monk',
-  paladin:   'class_paladin',   ranger:    'class_ranger',
-  rogue:     'class_rogue',     sorcerer:  'class_sorcerer',
-  warlock:   'class_warlock',   wizard:    'class_wizard',
-  artificer: 'class_artificer',
+const _CLASS_ICON_LABELS = {
+  barbarian: ['BB', 'Barbarian'], bard:      ['BD', 'Bard'],
+  cleric:    ['CL', 'Cleric'],    druid:     ['DR', 'Druid'],
+  fighter:   ['FT', 'Fighter'],   monk:      ['MK', 'Monk'],
+  paladin:   ['PL', 'Paladin'],   ranger:    ['RN', 'Ranger'],
+  rogue:     ['RG', 'Rogue'],     sorcerer:  ['SC', 'Sorcerer'],
+  warlock:   ['WL', 'Warlock'],   wizard:    ['WZ', 'Wizard'],
+  artificer: ['AR', 'Artificer'],
 };
-function _classIconSrc(classStr) {
+function _classIconMeta(classStr) {
   if (!classStr) return null;
   const lower = classStr.toLowerCase();
-  for (const [key, file] of Object.entries(_CLASS_ICONS)) {
-    if (lower.includes(key)) return '/icons/' + file + '.png';
+  for (const [key, [short, label]] of Object.entries(_CLASS_ICON_LABELS)) {
+    if (lower.includes(key)) return {short, label};
   }
-  return null;
+  const words = classStr.trim().split(/\s+/).filter(Boolean);
+  const short = words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || '—';
+  return {short, label: classStr};
+}
+function _makeClassIcon(classStr, className) {
+  const meta = _classIconMeta(classStr);
+  if (!meta) return null;
+  const icon = document.createElement('span');
+  icon.className = `${className} class-icon-fallback`;
+  icon.textContent = meta.short;
+  icon.setAttribute('role', 'img');
+  icon.setAttribute('aria-label', `${meta.label} class`);
+  return icon;
 }
 
 const _BLOCK_BADGES = [
@@ -4087,6 +5085,28 @@ function renderActionBlock(name, text, isReplay) {
   _reanchorCursor();
 }
 
+function renderSidebandBlock(channel, speaker, name, text, isReplay) {
+  _flushForBlock();
+  const isGM = speaker === 'gm';
+  const block = document.createElement('section');
+  block.className = `sideband-block ${channel}-block ${isGM ? 'gm-sideband' : 'player-sideband'}`;
+  if (isReplay) block.style.opacity = '0.72';
+
+  const label = document.createElement('div');
+  label.className = 'sideband-label';
+  label.textContent = `${channel.toUpperCase()} — ${isGM ? 'GM' : (name || 'PLAYER')}`;
+
+  const body = document.createElement('p');
+  body.className = 'sideband-text';
+  body.textContent = isGM
+    ? text.trim()
+    : text.replace(/^\s*(?:OOC|META):\s*/i, '').trim();
+
+  block.append(label, body);
+  textContent.appendChild(block);
+  _reanchorCursor();
+}
+
 // ── NPC dialogue block ───────────────────────────────────────────────
 function renderNPCBlock(name, text, isReplay) {
   _flushForBlock();
@@ -4119,30 +5139,124 @@ function renderNPCBlock(name, text, isReplay) {
   _reanchorCursor();
 }
 
-// ── Dice block icon detection ─────────────────────────────────────────
-function _diceRollIcon(text) {
-  const t = text.toLowerCase();
-  // Highest-stakes — check first
-  if (/death save|death saving|critical hit|fumble/.test(t))             return 'dragon';
-  // Spell
-  if (/spell attack|concentration|cantrip|cast/.test(t))                 return 'spellbook';
-  // Potion / medicine
-  if (/potion|medicine|alchemist/.test(t))                               return 'potion';
-  // Mystical sensing
-  if (/insight|arcana|divination|perception/.test(t))                    return 'crystal_ball';
-  // Combat
-  if (/attack|vs ac|\bhit\b|\bmiss\b|slashing|piercing|bludgeoning|necrotic|radiant|fire|cold|lightning|damage/.test(t)) return 'attack';
-  // Saving throws
-  if (/saving throw|save dc|\bsave\b|con save|dex save|wis save|str save|int save|cha save/.test(t)) return 'shield';
-  // Knowledge checks
-  if (/investigation|history|nature|religion|survival/.test(t))          return 'scroll';
-  // Social / physical skills
-  if (/stealth|sleight|deception|persuasion|intimidation|performance|acrobatics|athletics/.test(t)) return 'dagger';
-  // Healing
-  if (/heal|restore|hit point|recover/.test(t))                          return 'heal';
-  // Initiative
-  if (/initiative/.test(t))                                              return 'timer';
-  return null;
+// ── Dice roll parsing + inline SVG silhouettes ────────────────────────
+const _DIE_SILHOUETTES = {
+  d4:   { tag: 'polygon', attrs: { points: '50,6 95,90 5,90' }, facets: ['M50 6 L50 90', 'M5 90 L50 54 L95 90'] },
+  d6:   { tag: 'rect', attrs: { x: 9, y: 9, width: 82, height: 82, rx: 9 }, facets: [] },
+  d8:   { tag: 'polygon', attrs: { points: '50,4 94,50 50,96 6,50' }, facets: ['M6 50 L94 50', 'M50 4 L50 96'] },
+  d10:  { tag: 'polygon', attrs: { points: '50,4 88,25 97,58 72,91 50,97 28,91 3,58 12,25' }, facets: ['M50 4 L50 97', 'M12 25 L72 91', 'M88 25 L28 91'] },
+  d12:  { tag: 'polygon', attrs: { points: '50,3 78,11 95,34 95,66 78,89 50,97 22,89 5,66 5,34 22,11' }, facets: ['M22 11 L78 89', 'M78 11 L22 89', 'M5 34 L95 66', 'M95 34 L5 66'] },
+  d20:  {
+    tag: 'polygon',
+    attrs: { points: '50,3 87,20 98,58 75,93 25,93 2,58 13,20' },
+    facets: [
+      'M50 3 L25 37 L13 20',
+      'M50 3 L75 37 L87 20',
+      'M25 37 L50 3 L75 37 Z',
+      'M13 20 L25 37 L2 58',
+      'M87 20 L75 37 L98 58',
+      'M25 37 L18 67 L50 82 L75 37 L82 67 L50 82 Z',
+      'M2 58 L18 67 L25 93',
+      'M98 58 L82 67 L75 93',
+      'M25 93 L50 82 L75 93',
+    ],
+  },
+  d100: { tag: 'circle', attrs: { cx: 50, cy: 50, r: 46 }, facets: ['M17 24 C38 39 62 39 83 24', 'M17 76 C38 61 62 61 83 76', 'M10 50 L90 50'] },
+};
+
+function _diceRollData(text) {
+  const tagged = [...text.matchAll(/^\[(ADV|DIS)\]\s*Roll\s*([A-Z]):\s*\[(\d+)\]/gim)];
+  if (tagged.length > 1) {
+    const chosen = (text.match(/Takes roll\s+([A-Z])/i) || [])[1];
+    return tagged.map(match => ({
+      dieType: 'd20',
+      value: Number(match[3]),
+      kept: !chosen || match[2].toUpperCase() === chosen.toUpperCase(),
+    }));
+  }
+
+  // One-line advantage, disadvantage, or Elven Accuracy:
+  // "1d20+8: [7, 16, 12] → keep 16 (Elven Accuracy)".
+  let match = text.match(/\b(?:1)?d(4|6|8|10|12|20|100)(?:[+-]\d+)?\s*:\s*\[([^\]]+)\](?:\s*(?:→|->)\s*keep\s*(\d+))?/i);
+  if (match) {
+    const values = (match[2].match(/\d+/g) || []).map(Number);
+    if (values.length) {
+      const explicitKept = match[3] == null ? null : Number(match[3]);
+      let keptIndex = explicitKept == null ? 0 : values.indexOf(explicitKept);
+      if (explicitKept == null && /disadvantage|\bDIS\b/i.test(text)) {
+        keptIndex = values.indexOf(Math.min(...values));
+      } else if (explicitKept == null && /advantage|elven accuracy|\bADV\b/i.test(text)) {
+        keptIndex = values.indexOf(Math.max(...values));
+      }
+      return values.map((value, index) => ({ dieType: `d${match[1]}`, value, kept: index === Math.max(0, keptIndex) }));
+    }
+  }
+
+  // Narrated checks: "d20 (10)" or "d20 (7, 16, 12) ... keep 16".
+  match = text.match(/\b(?:1)?d(4|6|8|10|12|20|100)\s*\(\s*([\d,\s]+)\s*\)/i);
+  if (match) {
+    const values = (match[2].match(/\d+/g) || []).map(Number);
+    const keptMatch = text.match(/\bkeep(?:s|ing)?\s+(\d+)/i);
+    const keptValue = keptMatch ? Number(keptMatch[1]) : null;
+    let keptIndex = keptValue == null ? 0 : values.indexOf(keptValue);
+    if (keptValue == null && values.length > 1 && /disadvantage/i.test(text)) keptIndex = values.indexOf(Math.min(...values));
+    else if (keptValue == null && values.length > 1 && /advantage|elven accuracy/i.test(text)) keptIndex = values.indexOf(Math.max(...values));
+    return values.map((value, index) => ({ dieType: `d${match[1]}`, value, kept: index === Math.max(0, keptIndex) }));
+  }
+
+  // dice.py's single-d20 output: "Roll: 10 + 8 = 18".
+  match = text.match(/\bRoll:\s*(\d+)\b/i);
+  return match ? [{ dieType: 'd20', value: Number(match[1]), kept: true }] : [];
+}
+
+function _svgElement(tag, attrs, className) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  Object.entries(attrs || {}).forEach(([name, value]) => el.setAttribute(name, value));
+  if (className) el.setAttribute('class', className);
+  return el;
+}
+
+function _specialD20State(data, fullText) {
+  if (!data.kept || data.dieType !== 'd20') return '';
+  const attackContext = /\battack\b|\bto hit\b|\bvs\.?\s*AC\b|automatic miss/i.test(fullText);
+  if (data.value === 20 && (/CRITICAL(?: HIT)?/i.test(fullText) || attackContext)) return 'CRITICAL';
+  if (data.value === 1 && (/FUMBLE/i.test(fullText) || attackContext)) return 'FUMBLE';
+  return '';
+}
+
+function _makeDieRoll(data, isMulti, fullText) {
+  const specialState = _specialD20State(data, fullText);
+  const item = document.createElement('span');
+  item.className = `die-roll-item ${data.kept ? 'kept' : 'discarded'}`;
+  item.setAttribute('role', 'img');
+  let ariaLabel = `${data.dieType} roll ${data.value}`;
+  if (isMulti) ariaLabel += `, ${data.kept ? 'kept' : 'discarded'}`;
+  if (specialState) ariaLabel += `, ${specialState}`;
+  item.setAttribute('aria-label', ariaLabel);
+
+  const svg = _svgElement('svg', { viewBox: '0 0 100 100', 'data-die': data.dieType, 'aria-hidden': 'true', focusable: 'false' }, 'die-roll-svg');
+  const shapeDef = _DIE_SILHOUETTES[data.dieType] || _DIE_SILHOUETTES.d100;
+  const outline = _svgElement(shapeDef.tag, shapeDef.attrs, 'die-face-outline');
+  const inner = outline.cloneNode(false);
+  inner.setAttribute('class', 'die-face-inner');
+  inner.setAttribute('transform', 'translate(10 10) scale(0.8)');
+  svg.append(outline, inner);
+  shapeDef.facets.forEach(path => svg.appendChild(_svgElement('path', { d: path }, 'die-face-facet')));
+
+  const value = _svgElement('text', { x: 50, y: 52 }, 'die-svg-value');
+  value.textContent = data.value;
+  svg.appendChild(value);
+
+  item.appendChild(svg);
+  if (isMulti || specialState) {
+    const state = document.createElement('span');
+    state.className = 'die-roll-state';
+    state.textContent = isMulti ? (data.kept ? 'KEPT' : 'DISCARDED') : specialState;
+    if (isMulti && data.kept && specialState) state.textContent += ` · ${specialState}`;
+    state.setAttribute('aria-hidden', 'true');
+    item.appendChild(state);
+  }
+  return item;
 }
 
 // ── Dice result block ─────────────────────────────────────────────────
@@ -4157,29 +5271,31 @@ function renderDiceBlock(text, isReplay) {
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
     .replace(/\r/g, '');
 
-  // Icon on left based on roll type
-  const iconName = _diceRollIcon(cleaned);
-  if (iconName) {
-    const ico = document.createElement('img');
-    ico.src = '/icons/' + iconName + '.png';
-    ico.className = 'dice-block-icon';
-    ico.alt = '';
-    block.appendChild(ico);
+  // Dice stay in one responsive row; original math remains below verbatim.
+  const resultsWrap = document.createElement('div');
+  resultsWrap.className = 'dice-results';
+  const rolls = _diceRollData(cleaned);
+  const isMulti = rolls.length > 1;
+  let hasCrit = rolls.some(roll => _specialD20State(roll, cleaned) === 'CRITICAL');
+  let hasFumble = rolls.some(roll => _specialD20State(roll, cleaned) === 'FUMBLE');
+  if (rolls.length) {
+    const rollRow = document.createElement('div');
+    rollRow.className = 'dice-roll-row';
+    rolls.forEach(roll => rollRow.appendChild(_makeDieRoll(roll, isMulti, cleaned)));
+    resultsWrap.appendChild(rollRow);
   }
 
-  // Wrap results so they flex as a group
-  const resultsWrap = document.createElement('div');
-  let hasCrit = false, hasFumble = false;
+  const math = document.createElement('div');
+  math.className = 'dice-math';
   cleaned.split('\n').forEach(line => {
     const trimmed = line.trim();
     if (!trimmed) return;
     const el = document.createElement('div');
     el.className = 'dice-result';
     el.textContent = trimmed;
-    resultsWrap.appendChild(el);
-    if (/CRITICAL HIT/i.test(trimmed)) hasCrit = true;
-    if (/FUMBLE/i.test(trimmed))        hasFumble = true;
+    math.appendChild(el);
   });
+  resultsWrap.appendChild(math);
   block.appendChild(resultsWrap);
 
   if (!isReplay) {
@@ -4293,19 +5409,32 @@ function renderXpBlock(xpData) {
   _flushForBlock();
   const block = document.createElement('div');
   block.className = 'xp-block';
+  const heading = document.createElement('div');
+  heading.className = 'xp-heading';
+  heading.textContent = xpData.status === 'awarded' ? 'XP AWARDED'
+    : (xpData.status === 'deferred-to-milestone' || xpData.status === 'bundled-into-quest')
+      ? 'XP DEFERRED' : `XP ${String(xpData.status || 'EVENT').replaceAll('-', ' ').toUpperCase()}`;
+  block.appendChild(heading);
   const line = document.createElement('div');
   line.className = 'xp-line';
-  // names line: "Kat, Ben — +250 XP"
-  const names = (xpData.names || []).join(', ');
-  const amt   = xpData.xp != null ? `+${xpData.xp} XP` : '';
-  line.textContent = [names, amt].filter(Boolean).join(' — ');
+  const subject = xpData.name
+    ? `${xpData.name}${xpData.category ? ' — ' + xpData.category : ''}`
+    : (xpData.names || []).join(', ');
+  const amt = xpData.xp != null
+    ? `${xpData.status === 'awarded' ? '+' : ''}${xpData.xp} XP`
+    : '';
+  line.textContent = [subject, amt].filter(Boolean).join(' — ');
   block.appendChild(line);
-  if (xpData.reason || xpData.total) {
+  if (xpData.reason || xpData.total || xpData.deferred_into || xpData.trigger) {
     const detail = document.createElement('div');
     detail.className = 'xp-detail';
     const parts = [];
     if (xpData.reason) parts.push(xpData.reason);
+    if (xpData.deferred_into) parts.push('Included in: ' + xpData.deferred_into);
+    if (xpData.trigger) parts.push('Trigger: ' + xpData.trigger);
     if (xpData.total)  parts.push(xpData.total);
+    if (xpData.level_up_available === true) parts.push('Level-up pending next long rest');
+    if (xpData.level_up_available === false) parts.push('Level-up available: No');
     detail.textContent = parts.join('  ·  ');
     block.appendChild(detail);
   }
@@ -4332,7 +5461,15 @@ function renderReplayBatch(items) {
       return;
     }
     if (!item.text) return;
-    if (item.action) {
+    if (item.player_ooc) {
+      renderSidebandBlock('ooc', 'player', item.player_ooc, item.text, true);
+    } else if (item.gm_ooc) {
+      renderSidebandBlock('ooc', 'gm', '', item.text, true);
+    } else if (item.player_meta) {
+      renderSidebandBlock('meta', 'player', item.player_meta, item.text, true);
+    } else if (item.gm_meta) {
+      renderSidebandBlock('meta', 'gm', '', item.text, true);
+    } else if (item.action) {
       renderActionBlock(item.action, item.text, true);
     } else if (item.player) {
       renderPlayerBlock(item.player, item.text, true);
@@ -4478,6 +5615,9 @@ function renderReplay(text) {
 
 // Keyed by player name so repeated calls merge cleanly.
 const _playerData = {};
+let _questCache = [];
+let _questMeta = {};
+let _questReturnFocus = null;
 
 // ── CRIT / FUMBLE flash ─────────────────────────────────────────────
 const _flashOverlay = document.getElementById('flash-overlay');
@@ -4571,6 +5711,7 @@ function _wBar(card, p, w) {
   const obj = _bind(p, w.bind) || {};
   const cur = obj[w.cur || 'current'];
   const max = obj[w.max || 'max'];
+  if (w.bind === 'hp' && cur == null && max == null) return;
   if (w.require_cur && cur == null) return;
   const row = document.createElement('div');
   row.className = w.row_class || 'sb-hp-row';
@@ -4675,10 +5816,10 @@ function _wPipLevels(card, p, w) {
   const el = document.createElement('div');
   el.className = 'sb-slots';
   el.dataset.role = w.role || 'spell_slots';
-  Object.entries(slots).sort(([a], [b]) => +a - +b).forEach(([lvl, s]) => {
+  Object.entries(slots).sort(([a], [b]) => String(a).localeCompare(String(b), undefined, { numeric: true })).forEach(([lvl, s]) => {
     const max = s.max || 0;
     if (!max) return;
-    const avail = max - (s.used || 0);
+    const avail = Math.max(0, Math.min(max, s.current ?? (max - (s.used || 0))));
     const row = document.createElement('div'); row.className = 'sb-slot-row';
     const lbl = document.createElement('span'); lbl.className = 'sb-slot-level';
     lbl.textContent = ROMAN[+lvl] || lvl; row.appendChild(lbl);
@@ -4687,6 +5828,8 @@ function _wPipLevels(card, p, w) {
       pip.className = 'sb-slot-pip ' + (i < avail ? 'avail' : 'spent');
       row.appendChild(pip);
     }
+    const count = document.createElement('span'); count.className = 'sb-slot-count';
+    count.textContent = `${avail}/${max}`; row.appendChild(count);
     el.appendChild(row);
   });
   if (el.children.length) card.appendChild(el);
@@ -4735,12 +5878,8 @@ function _buildPlayerCard(p, solo) {
   card.dataset.playerName = p.name;
 
   // Class icon (top-right corner)
-  const classIco = _classIconSrc(p.class);
-  if (classIco) {
-    const ico = document.createElement('img');
-    ico.src = classIco; ico.className = 'sb-class-icon'; ico.alt = '';
-    card.appendChild(ico);
-  }
+  const classIco = _makeClassIcon(p.class, 'sb-class-icon');
+  if (classIco) card.appendChild(classIco);
 
   // Name
   const nameEl = document.createElement('div');
@@ -4790,6 +5929,19 @@ function _smDivider() {
   return d;
 }
 
+function _smSectionTitle(label, icon) {
+  const paths = {
+    attacks: '<path d="M7 4l13 13M17 4l-4 4m-6 9l-3 3m13-3l3 3M4 7l4 4"/><path d="M5 3l3 1-4 4-1-3zM19 3l-3 1 4 4 1-3z"/>',
+    spells: '<circle cx="12" cy="12" r="8"/><path d="M12 5l1.7 4.3L18 11l-4.3 1.7L12 17l-1.7-4.3L6 11l4.3-1.7z"/>',
+    features: '<path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4M9 11h6M9 15h6"/>',
+    inventory: '<path d="M7 8V6a5 5 0 0110 0v2M5 8h14l1 13H4z"/><path d="M8 12h8M9 8v3M15 8v3"/>',
+  };
+  const title = document.createElement('div');
+  title.className = 'sm-section-title';
+  title.innerHTML = `<svg class="sheet-section-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[icon] || ''}</svg>${label}`;
+  return title;
+}
+
 let _openSheetName = null;
 
 function openSheet(name) {
@@ -4810,12 +5962,10 @@ function openSheet(name) {
   const panel = document.getElementById('sheet-panel');
   const prevIco = document.getElementById('sm-class-ico');
   if (prevIco) prevIco.remove();
-  const sheetClassIco = _classIconSrc(p.class);
+  const sheetClassIco = _makeClassIcon(p.class, 'sm-header-icon');
   if (sheetClassIco) {
-    const ico = document.createElement('img');
-    ico.id = 'sm-class-ico'; ico.className = 'sm-header-icon';
-    ico.src = sheetClassIco; ico.alt = '';
-    panel.appendChild(ico);
+    sheetClassIco.id = 'sm-class-ico';
+    panel.appendChild(sheetClassIco);
   }
 
   // Header
@@ -4912,10 +6062,7 @@ function openSheet(name) {
   // Attacks
   if (sheet.attacks && sheet.attacks.length) {
     content.appendChild(_smDivider());
-    const title = document.createElement('div');
-    title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/dagger.png" class="sheet-section-icon" alt="">Attacks';
-    content.appendChild(title);
+    content.appendChild(_smSectionTitle('Attacks', 'attacks'));
     const table = document.createElement('table');
     table.className = 'sm-attacks-table';
     table.innerHTML = `<thead><tr>
@@ -4942,10 +6089,7 @@ function openSheet(name) {
   if (sheet.spells) {
     const sp = sheet.spells;
     content.appendChild(_smDivider());
-    const title = document.createElement('div');
-    title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/crystal_ball.png" class="sheet-section-icon" alt="">Spellcasting';
-    content.appendChild(title);
+    content.appendChild(_smSectionTitle('Spellcasting', 'spells'));
     // Derive live slot string from spell_slots object if available; fall back to static string
     let _slotsStr = sp.slots || '';
     if (p.spell_slots && Object.keys(p.spell_slots).length) {
@@ -5003,10 +6147,7 @@ function openSheet(name) {
   // Features & Passives
   if (sheet.features && sheet.features.length) {
     content.appendChild(_smDivider());
-    const title = document.createElement('div');
-    title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/scroll.png" class="sheet-section-icon" alt="">Features & Passives';
-    content.appendChild(title);
+    content.appendChild(_smSectionTitle('Features & Passives', 'features'));
     sheet.features.forEach(f => {
       const el = document.createElement('div');
       el.className = 'sm-feature';
@@ -5026,10 +6167,7 @@ function openSheet(name) {
   // Inventory
   if (sheet.inventory && sheet.inventory.length) {
     content.appendChild(_smDivider());
-    const title = document.createElement('div');
-    title.className = 'sm-section-title';
-    title.innerHTML = '<img src="/icons/pack.png" class="sheet-section-icon" alt="">Inventory';
-    content.appendChild(title);
+    content.appendChild(_smSectionTitle('Inventory', 'inventory'));
     const list = document.createElement('ul');
     list.className = 'sm-inventory-list';
     sheet.inventory.forEach(item => {
@@ -5105,8 +6243,8 @@ function openSrdModal(name, category, level) {
     .then(data => {
       if (!data.found) {
         const linkHtml = data.wikidot_url
-          ? `<br><a href="${data.wikidot_url}" target="_blank" rel="noopener" style="color:#c9a84c;font-size:11px;opacity:0.85;text-decoration:none;">View on D&D 5e Wiki ↗</a>`
-          : `<br><span style="font-size:10px;opacity:0.6">May be from a supplement (Xanathar's, Tasha's, etc.)</span>`;
+          ? `<br><a href="${data.wikidot_url}" target="_blank" rel="noopener" class="srd-external-link">View on D&D 5e Wiki ↗</a>`
+          : `<br><span class="srd-supplement-note">May be from a supplement (Xanathar's, Tasha's, etc.)</span>`;
         body.innerHTML = `<div id="srd-not-found">"${_esc(name)}" is not in the local dataset.${linkHtml}</div>`;
         return;
       }
@@ -5165,8 +6303,68 @@ document.getElementById('sheet-content').addEventListener('click', e => {
   openSrdModal(el.dataset.srdName, el.dataset.srdCategory || '', level);
 });
 
-// Delegated listener — catches clicks on any .sb-player card even after DOM rebuilds
+function openQuestModal(questId) {
+  const quest = _questCache.find(entry => entry.id === questId);
+  if (!quest) return;
+
+  const modal = document.getElementById('quest-modal');
+  const status = String(quest.status || 'active').toLowerCase();
+  const description = String(quest.description || '').trim();
+  const objectives = Array.isArray(quest.objectives)
+    ? quest.objectives.map(value => String(value).trim()).filter(Boolean)
+    : [];
+
+  document.getElementById('quest-modal-title').textContent = quest.name || 'Unnamed Quest';
+  const statusEl = document.getElementById('quest-modal-status');
+  statusEl.className = status;
+  statusEl.textContent = status.toUpperCase();
+
+  const descriptionSection = document.getElementById('quest-modal-description-section');
+  descriptionSection.hidden = !description;
+  document.getElementById('quest-modal-description').textContent = description;
+
+  const objectiveSection = document.getElementById('quest-modal-objectives-section');
+  objectiveSection.hidden = objectives.length === 0;
+  const objectiveList = document.getElementById('quest-modal-objectives');
+  objectiveList.replaceChildren(...objectives.map(value => {
+    const item = document.createElement('li');
+    item.textContent = value;
+    return item;
+  }));
+
+  document.getElementById('quest-modal-empty').hidden = Boolean(description || objectives.length);
+  const updated = quest.updated_at || _questMeta.updated_at || '';
+  document.getElementById('quest-modal-updated').textContent = updated ? `Updated ${updated}` : '';
+  modal.dataset.questVersion = _questMeta.version || '';
+
+  if (!modal.open) {
+    _questReturnFocus = document.activeElement;
+    modal.showModal();
+  }
+  document.getElementById('quest-close').focus();
+}
+
+function closeQuestModal() {
+  const modal = document.getElementById('quest-modal');
+  if (modal.open) modal.close();
+}
+
+document.getElementById('quest-close').addEventListener('click', closeQuestModal);
+document.getElementById('quest-modal').addEventListener('click', event => {
+  if (event.target === document.getElementById('quest-modal')) closeQuestModal();
+});
+document.getElementById('quest-modal').addEventListener('close', () => {
+  if (_questReturnFocus && _questReturnFocus.isConnected) _questReturnFocus.focus();
+  _questReturnFocus = null;
+});
+
+// Delegated listener — rows/cards survive full sidebar DOM rebuilds.
 document.getElementById('sidebar').addEventListener('click', function(e) {
+  const questItem = e.target.closest('.sb-quest-item[data-quest-id]');
+  if (questItem) {
+    openQuestModal(questItem.dataset.questId);
+    return;
+  }
   const card = e.target.closest('.sb-player[data-player-name]');
   if (card) openSheet(card.dataset.playerName);
 });
@@ -5262,56 +6460,229 @@ setInterval(() => {
 
 // ── Stats update ─────────────────────────────────────────────────────────────
 
+const _SIDEBAR_FRIENDLY_SIDES = new Set(['party', 'ally', 'friendly', 'pc', 'companion', 'summon']);
+const _SIDEBAR_ENEMY_SIDES = new Set(['enemy', 'hostile', 'foe', 'monster']);
+const _SIDEBAR_IDENTITY_KEYS = ['race', 'class', 'level', 'ac', 'ability_scores', 'sheet', 'background'];
+const _ENCOUNTER_ACTIVE_STATES = new Set(['active', 'fleeing', 'surrendered', 'unconscious']);
+let _encounterActors = [];
+
+function _isPersistentSidebarActor(actor) {
+  if (!actor || !actor.name || actor.active === false || actor.defeated === true) return false;
+  const side = String(actor.side || actor.type || '').trim().toLowerCase();
+  if (_SIDEBAR_ENEMY_SIDES.has(side)) return false;
+  if (side) return _SIDEBAR_FRIENDLY_SIDES.has(side);
+  return _SIDEBAR_IDENTITY_KEYS.some(key => key in actor);
+}
+
+function _encounterInitiativePosition(actor, turnOrder) {
+  if (actor.initiative_position != null) return actor.initiative_position;
+  const order = turnOrder && Array.isArray(turnOrder.order) ? turnOrder.order : [];
+  const actorName = String(actor.name || '').toLowerCase();
+  const index = order.findIndex(entry => {
+    const name = typeof entry === 'object' && entry ? entry.name : entry;
+    return String(name || '').toLowerCase() === actorName;
+  });
+  return index >= 0 ? index + 1 : null;
+}
+
+function _buildEncounterActorCard(actor, turnOrder, resolved = false) {
+  const card = document.createElement('section');
+  const disposition = String(actor.disposition || 'hostile').toLowerCase();
+  card.className = `encounter-card ${disposition === 'neutral' ? 'neutral' : 'hostile'}${resolved ? ' resolved' : ''}`;
+  card.dataset.encounterActorId = actor.id || actor.name || '';
+
+  const header = document.createElement('div');
+  header.className = 'encounter-card-header';
+  const name = document.createElement('div');
+  name.className = 'encounter-name';
+  name.textContent = actor.name || 'Unknown hostile';
+  const status = document.createElement('div');
+  status.className = 'encounter-disposition';
+  status.textContent = disposition === 'neutral' ? 'Neutral' : 'Hostile';
+  header.append(name, status);
+  card.appendChild(header);
+
+  const state = document.createElement('div');
+  state.className = 'encounter-state';
+  state.textContent = actor.state || 'active';
+  card.appendChild(state);
+
+  if (actor.hp_known && actor.hp && actor.hp.current != null && actor.hp.max != null) {
+    const row = document.createElement('div');
+    row.className = 'encounter-hp-row';
+    const label = document.createElement('span');
+    label.textContent = actor.inspected ? 'HP (Inspected)' : 'HP';
+    const value = document.createElement('span');
+    value.className = 'encounter-hp-value';
+    value.textContent = `${actor.hp.current} / ${actor.hp.max}`;
+    row.append(label, value);
+    card.appendChild(row);
+
+    const track = document.createElement('div');
+    track.className = 'encounter-hp-track';
+    const fill = document.createElement('div');
+    fill.className = 'encounter-hp-fill';
+    const pct = actor.hp.max > 0 ? Math.max(0, Math.min(100, actor.hp.current / actor.hp.max * 100)) : 0;
+    fill.style.width = `${pct}%`;
+    track.appendChild(fill);
+    card.appendChild(track);
+  } else {
+    const band = document.createElement('div');
+    band.className = 'encounter-wound-band';
+    band.textContent = `Condition: ${actor.wound_band || 'Unknown'}`;
+    card.appendChild(band);
+  }
+
+  if (actor.ac != null && actor.ac_known) {
+    const row = document.createElement('div');
+    row.className = 'encounter-meta-row';
+    row.innerHTML = '<span>AC</span>';
+    const value = document.createElement('span');
+    value.className = 'encounter-meta-value';
+    value.textContent = actor.ac;
+    row.appendChild(value);
+    card.appendChild(row);
+  }
+
+  const distance = actor.distance || actor.range_band;
+  if (distance) {
+    const row = document.createElement('div');
+    row.className = 'encounter-meta-row';
+    row.innerHTML = '<span>Range</span>';
+    const value = document.createElement('span');
+    value.className = 'encounter-meta-value';
+    value.textContent = distance;
+    row.appendChild(value);
+    card.appendChild(row);
+  }
+
+  const position = _encounterInitiativePosition(actor, turnOrder);
+  if (position != null || actor.initiative != null) {
+    const row = document.createElement('div');
+    row.className = 'encounter-meta-row';
+    row.innerHTML = '<span>Initiative</span>';
+    const value = document.createElement('span');
+    value.className = 'encounter-meta-value';
+    value.textContent = [position != null ? `#${position}` : '', actor.initiative != null ? actor.initiative : '']
+      .filter(Boolean).join(' · ');
+    row.appendChild(value);
+    card.appendChild(row);
+  }
+
+  if (Array.isArray(actor.conditions) && actor.conditions.length) {
+    const conditions = document.createElement('div');
+    conditions.className = 'encounter-conditions';
+    actor.conditions.forEach(condition => {
+      const pill = document.createElement('span');
+      pill.className = 'encounter-condition';
+      pill.textContent = condition;
+      conditions.appendChild(pill);
+    });
+    card.appendChild(conditions);
+  }
+  return card;
+}
+
+function _setEncounterDrawerOpen(open) {
+  const panel = document.getElementById('encounter-panel');
+  const toggle = document.getElementById('encounter-toggle');
+  panel.classList.toggle('drawer-open', open);
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.textContent = open ? 'Close Encounter' : 'Encounter';
+}
+
+function _renderEncounterActors(actors, turnOrder) {
+  _encounterActors = Array.isArray(actors) ? actors.slice() : [];
+  const active = _encounterActors.filter(actor => _ENCOUNTER_ACTIVE_STATES.has(String(actor.state || 'active').toLowerCase()));
+  const resolved = _encounterActors.filter(actor => !_ENCOUNTER_ACTIVE_STATES.has(String(actor.state || 'active').toLowerCase()));
+  const panel = document.getElementById('encounter-panel');
+  const activeList = document.getElementById('encounter-active');
+  const resolvedSection = document.getElementById('encounter-resolved');
+  const resolvedList = document.getElementById('encounter-resolved-list');
+  const toggle = document.getElementById('encounter-toggle');
+
+  activeList.replaceChildren(...active.map(actor => _buildEncounterActorCard(actor, turnOrder)));
+  resolvedList.replaceChildren(...resolved.map(actor => _buildEncounterActorCard(actor, turnOrder, true)));
+  resolvedSection.style.display = resolved.length ? '' : 'none';
+  document.getElementById('encounter-count').textContent = `${active.length} active`;
+
+  const hasEncounter = _encounterActors.length > 0;
+  panel.classList.toggle('has-data', hasEncounter);
+  toggle.classList.toggle('has-data', hasEncounter);
+  document.body.classList.toggle('encounter-active', hasEncounter);
+  if (!hasEncounter) _setEncounterDrawerOpen(false);
+}
+
+document.getElementById('encounter-toggle').addEventListener('click', () => {
+  const panel = document.getElementById('encounter-panel');
+  _setEncounterDrawerOpen(!panel.classList.contains('drawer-open'));
+});
+
 function updateStats(stats) {
-  if (!stats || !stats.players) return;
+  if (!stats) return;
   const sidebar = document.getElementById('sidebar');
   const turnSection = document.getElementById('sb-turn-section');
-  const solo = stats.players.length === 1;
+  const hasPlayerSnapshot = Object.prototype.hasOwnProperty.call(stats, 'players');
+  if (hasPlayerSnapshot) {
+    const incomingPlayers = (stats.players || []).filter(_isPersistentSidebarActor);
+    const incomingNames = new Set(incomingPlayers.map(p => p.name));
+    const solo = incomingPlayers.length === 1;
 
-  // Merge incoming players into _playerData
-  stats.players.forEach(p => {
-    if (!p.name) return;
-    const existing = _playerData[p.name] || {};
-    // Deep merge hp, xp, ability_scores; replace scalars
-    for (const [k, v] of Object.entries(p)) {
-      if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof existing[k] === 'object') {
-        existing[k] = Object.assign({}, existing[k], v);
+    // Full player arrays replace omitted actors; quest-only snapshots leave them intact.
+    Object.keys(_playerData).forEach(name => {
+      if (incomingNames.has(name)) return;
+      delete _playerData[name];
+      delete _prevHp[name];
+      sidebar.querySelector(`.sb-player[data-player-name="${CSS.escape(name)}"]`)?.remove();
+    });
+
+    incomingPlayers.forEach(p => {
+      if (!p.name) return;
+      const existing = _playerData[p.name] || {};
+      for (const [k, v] of Object.entries(p)) {
+        if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof existing[k] === 'object') {
+          existing[k] = Object.assign({}, existing[k], v);
+        } else {
+          existing[k] = v;
+        }
+      }
+      _playerData[p.name] = existing;
+    });
+
+    // Rebuild all player cards (insert before turn section).
+    Object.keys(_playerData).forEach(name => {
+      const p = _playerData[name];
+      const prevHp = _prevHp[name];
+      const newHp  = p.hp ? p.hp.current : undefined;
+
+      const existing = sidebar.querySelector(`.sb-player[data-player-name="${CSS.escape(name)}"]`);
+      const newCard = _buildPlayerCard(p, solo);
+      if (existing) {
+        sidebar.insertBefore(newCard, existing);
+        existing.remove();
       } else {
-        existing[k] = v;
+        sidebar.insertBefore(newCard, turnSection);
       }
-    }
-    _playerData[p.name] = existing;
-  });
 
-  // Rebuild all player cards (insert before turn section)
+      if (newHp !== undefined && prevHp !== undefined && newHp !== prevHp) {
+        const numsEl = newCard.querySelector('.sb-hp-nums');
+        if (numsEl) {
+          numsEl.classList.remove('hp-flash-dmg', 'hp-flash-heal');
+          void numsEl.offsetWidth;
+          numsEl.classList.add(newHp < prevHp ? 'hp-flash-dmg' : 'hp-flash-heal');
+        }
+      }
+      if (newHp !== undefined) _prevHp[name] = newHp;
+    });
+  }
+
   const names = Object.keys(_playerData);
-  names.forEach(name => {
-    const p = _playerData[name];
-    const prevHp = _prevHp[name];
-    const newHp  = p.hp ? p.hp.current : undefined;
-
-    const existing = sidebar.querySelector(`.sb-player[data-player-name="${CSS.escape(name)}"]`);
-    const newCard = _buildPlayerCard(p, solo);
-    if (existing) {
-      sidebar.insertBefore(newCard, existing);
-      existing.remove();
-    } else {
-      sidebar.insertBefore(newCard, turnSection);
-    }
-
-    // Flash HP numeral if HP changed
-    if (newHp !== undefined && prevHp !== undefined && newHp !== prevHp) {
-      const numsEl = newCard.querySelector('.sb-hp-nums');
-      if (numsEl) {
-        numsEl.classList.remove('hp-flash-dmg', 'hp-flash-heal');
-        void numsEl.offsetWidth;
-        numsEl.classList.add(newHp < prevHp ? 'hp-flash-dmg' : 'hp-flash-heal');
-      }
-    }
-    if (newHp !== undefined) _prevHp[name] = newHp;
-  });
-
-  sidebar.classList.add('has-data');
+  sidebar.classList.toggle(
+    'has-data',
+    names.length > 0 || Boolean(stats.turn_order)
+      || Boolean(stats.factions && stats.factions.length)
+      || Boolean(stats.quests && stats.quests.length)
+  );
 
   // Faction panel
   if ('factions' in stats) {
@@ -5343,19 +6714,37 @@ function updateStats(stats) {
   // Quest panel
   if ('quests' in stats) {
     const questPanel = document.getElementById('sb-quests');
-    const quests = stats.quests || [];
+    const incomingCampaign = stats.quests_meta && stats.quests_meta.campaign;
+    if (_questMeta.campaign && incomingCampaign && _questMeta.campaign !== incomingCampaign) {
+      closeQuestModal();
+    }
+    _questMeta = (stats.quests_meta && typeof stats.quests_meta === 'object')
+      ? { ...stats.quests_meta }
+      : {};
+    _questCache = Array.isArray(stats.quests)
+      ? stats.quests.filter(q => q && typeof q === 'object').map((q, index) => ({
+          ...q,
+          id: q.id || `legacy-quest-${index}`,
+          name: q.name || 'Unnamed Quest',
+          status: String(q.status || 'active').toLowerCase(),
+        }))
+      : [];
     questPanel.querySelectorAll('.sb-quest-item').forEach(el => el.remove());
-    if (quests.length) {
+    if (_questCache.length) {
       const QCLS = { active:'active', threat:'threat', resolved:'resolved', failed:'failed' };
-      quests.forEach(q => {
-        const item = document.createElement('div');
+      _questCache.forEach(q => {
+        const item = document.createElement('button');
+        item.type = 'button';
         item.className = 'sb-quest-item';
+        item.dataset.questId = q.id;
+        item.setAttribute('aria-haspopup', 'dialog');
+        item.setAttribute('aria-label', `${q.name}, status ${q.status}`);
         const nm = document.createElement('span');
         nm.className = 'sb-quest-name';
-        nm.textContent = q.name || '—';
+        nm.textContent = q.name;
         const st = document.createElement('span');
         st.className = 'sb-quest-status ' + (QCLS[(q.status||'').toLowerCase()] || 'unknown');
-        st.textContent = q.status || '—';
+        st.textContent = (q.status || 'unknown').toUpperCase();
         item.appendChild(nm);
         item.appendChild(st);
         questPanel.appendChild(item);
@@ -5370,8 +6759,11 @@ function updateStats(stats) {
   if ('turn_order' in stats) {
     if (!stats.turn_order) {
       turnSection.style.display = 'none';
+      _currentTurnOrder = null;
     } else {
-      const to = stats.turn_order;
+      const to = Array.isArray(stats.turn_order)
+        ? {order: stats.turn_order}
+        : stats.turn_order;
       // Merge with existing if partial (only current or only round supplied)
       const existingTo = _currentTurnOrder || {};
       const merged = Object.assign({}, existingTo, to);
@@ -5381,16 +6773,25 @@ function updateStats(stats) {
       document.getElementById('sb-round').textContent = merged.round ?? 1;
       const list = document.getElementById('sb-turn-list');
       list.innerHTML = '';
-      (merged.order || []).forEach(name => {
+      (merged.order || []).forEach(actor => {
+        const entry = (actor && typeof actor === 'object') ? actor : {name: actor};
+        const name = entry.name;
+        if (!name || entry.active === false || entry.defeated === true) return;
         const el = document.createElement('div');
         el.className = 'sb-turn-item sb-turn-has-icon' + (name === merged.current ? ' sb-turn-current' : '');
-        const isPC = name in _playerData;
-        const iconSrc = isPC ? '/icons/helmet.png' : '/icons/enemy.png';
-        el.innerHTML = `<img src="${iconSrc}" class="sb-turn-icon" alt="">${name}`;
+        const isFriendly = (name in _playerData) || _isPersistentSidebarActor(entry);
+        const iconSrc = isFriendly ? '/icons/helmet.png' : '/icons/enemy.png';
+        const initiative = entry.initiative == null ? '' : ` · ${entry.initiative}`;
+        el.innerHTML = `<img src="${iconSrc}" class="sb-turn-icon" alt="">${name}${initiative}`;
         list.appendChild(el);
       });
     }
   }
+
+  _renderEncounterActors(
+    Array.isArray(stats.encounter_actors) ? stats.encounter_actors : _encounterActors,
+    _currentTurnOrder
+  );
 }
 
 let _currentTurnOrder = null;
@@ -5780,19 +7181,19 @@ if (_TTS_AVAILABLE) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// THEME PICKER (Dark / Light / Auto)
+// THEME PICKER (Dark / Light / Auto / High Contrast Dark)
 // Per-browser via localStorage["dnd-theme"]. The anti-FOUC inline script
 // in <head> applies the stored value before CSS parses so there's no
 // flash on load; this module handles runtime toggling.
 // ═══════════════════════════════════════════════════════════════════
 
-const _THEME_CYCLE = ['dark', 'light', 'auto'];
-const _THEME_LABEL = { dark: 'Dark', light: 'Light', auto: 'Auto' };
+const _THEME_CYCLE = ['dark', 'light', 'auto', 'contrast'];
+const _THEME_LABEL = { dark: 'Dark', light: 'Light', auto: 'Auto', contrast: 'High Contrast Dark' };
 
 function _readStoredTheme() {
   try {
     const v = localStorage.getItem('gm-theme');
-    return (v === 'dark' || v === 'light' || v === 'auto') ? v : 'auto';
+    return _THEME_CYCLE.includes(v) ? v : 'auto';
   } catch (_) {
     return 'auto';
   }
@@ -5839,12 +7240,20 @@ function _effectiveTheme(theme) {
   }
   refresh();
 
-  row.addEventListener('click', () => {
+  function cycleTheme() {
     const idx = _THEME_CYCLE.indexOf(current);
     current = _THEME_CYCLE[(idx + 1) % _THEME_CYCLE.length];
     try { localStorage.setItem('gm-theme', current); } catch (_) {}
     _applyTheme(current);
     refresh();
+  }
+
+  row.addEventListener('click', cycleTheme);
+  row.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      cycleTheme();
+    }
   });
 
   // Track system-pref changes so auto mode stays accurate without reload
@@ -6483,10 +7892,11 @@ function connect() {
 
     if (payload.stats) {
       updateStats(payload.stats);
-      if (payload.stats.players && payload.stats.players.length > 0) {
+      const sidebarPlayers = (payload.stats.players || []).filter(_isPersistentSidebarActor);
+      if (sidebarPlayers.length > 0) {
         _sidebarBtn.classList.add('visible');
-        _buildCharTabs(payload.stats.players);
-        _modeSwitcherCachePlayers(payload.stats.players);
+        _buildCharTabs(sidebarPlayers);
+        _modeSwitcherCachePlayers(sidebarPlayers);
       }
       if (payload.stats.world_time) {
         updateWorldClock(payload.stats.world_time);
@@ -6541,13 +7951,20 @@ function connect() {
     if (payload.clear) {
       // Wipe sidebar player data and DOM
       for (const key of Object.keys(_playerData)) delete _playerData[key];
+      _questCache = [];
+      _questMeta = {};
+      closeQuestModal();
       document.querySelectorAll('.sb-player').forEach(el => el.remove());
+      document.querySelectorAll('.sb-quest-item').forEach(el => el.remove());
+      const questPanelEl = document.getElementById('sb-quests');
+      if (questPanelEl) questPanelEl.style.display = 'none';
       const sbEl = document.getElementById('sidebar');
       if (sbEl) sbEl.classList.remove('has-data');
       const turnSectionEl = document.getElementById('sb-turn-section');
       if (turnSectionEl) turnSectionEl.style.display = 'none';
       _sidebarBtn.classList.remove('visible');
       _setSidebarVisible(true);   // reset to visible for next campaign
+      _renderEncounterActors([], null);
       clearDisplay();
     }
     if (payload.replay_batch) {
@@ -6573,7 +7990,15 @@ function connect() {
       renderXpBlock(payload.xp_award);
     }
     if (payload.text && !payload.inspiration_award && !payload.milestone_award && !payload.milestone_spend && !payload.xp_award) {
-      if (payload.action) {
+      if (payload.player_ooc) {
+        renderSidebandBlock('ooc', 'player', payload.player_ooc, payload.text);
+      } else if (payload.gm_ooc) {
+        renderSidebandBlock('ooc', 'gm', '', payload.text);
+      } else if (payload.player_meta) {
+        renderSidebandBlock('meta', 'player', payload.player_meta, payload.text);
+      } else if (payload.gm_meta) {
+        renderSidebandBlock('meta', 'gm', '', payload.text);
+      } else if (payload.action) {
         renderActionBlock(payload.action, payload.text);
       } else if (payload.player) {
         renderPlayerBlock(payload.player, payload.text);

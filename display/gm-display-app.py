@@ -8,6 +8,7 @@ Endpoints:
     GET  /                   → serves index.html
     POST /chunk              → receives text chunk from wrapper.py
     POST /stats              → receives character/combat stat updates (merged, persisted)
+    POST /quests/refresh     → rebuilds the active campaign's local quest snapshot
     GET  /stream             → SSE stream to browser (text + scene + stats events)
     GET  /ping               → health check
     POST /clear              → wipe text log and broadcast clear event
@@ -67,6 +68,13 @@ try:
     _audio.init()
 except Exception:
     _audio = None   # type: ignore
+
+from quest_cache import (
+    load_snapshot as _load_quest_snapshot,
+    normalize_snapshot as _normalize_quest_snapshot,
+    refresh_from_state as _refresh_quests_from_state,
+    write_snapshot as _write_quest_snapshot,
+)
 
 # TTS module — degrades silently if Gemini API key not configured.
 # See docs/SKILL-tts.md for setup.
@@ -1020,8 +1028,8 @@ _load_tail()
 
 
 # ─── Character / combat stats ─────────────────────────────────────────────────
-# Stored as {"players": [...], "turn_order": {...}|null}
-# Players are merged by name so partial updates (just HP, just XP) work.
+# Stored as {"players": [...], "encounter_actors": [...], "turn_order": {...}|null}.
+# Players are merged by name; encounter_actors is a display-safe full replacement.
 
 _current_stats: dict = {}
 _stats_lock = threading.Lock()
@@ -1048,6 +1056,53 @@ def _load_stats() -> None:
 
 
 _load_stats()
+
+
+def _active_campaign() -> str:
+    try:
+        return pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _quest_meta(snapshot: dict) -> dict:
+    return {key: snapshot.get(key) for key in (
+        "schema_version", "campaign", "version", "updated_at"
+    )}
+
+
+def _install_quest_snapshot(snapshot: dict) -> None:
+    with _stats_lock:
+        _current_stats["quests"] = list(snapshot.get("quests", []))
+        _current_stats["quests_meta"] = _quest_meta(snapshot)
+        if snapshot.get("campaign"):
+            _current_stats["campaign"] = snapshot["campaign"]
+
+
+def _restore_active_quests() -> dict | None:
+    """Restore the active campaign cache at process startup without reading state.md."""
+    campaign = _active_campaign()
+    if not campaign:
+        return None
+    try:
+        snapshot = _load_quest_snapshot(_find_campaign(campaign), campaign)
+    except (OSError, ValueError):
+        snapshot = None
+    if snapshot is None:
+        snapshot = _normalize_quest_snapshot([], campaign)
+    _install_quest_snapshot(snapshot)
+    return snapshot
+
+
+def _refresh_campaign_quests(campaign: str) -> dict:
+    """Refresh from state.md only at an explicit lifecycle trigger."""
+    directory = _find_campaign(campaign)
+    snapshot = _refresh_quests_from_state(directory, campaign)
+    _install_quest_snapshot(snapshot)
+    return snapshot
+
+
+_restore_active_quests()
 
 
 # ─── Player input queue ───────────────────────────────────────────────────────
@@ -1235,13 +1290,19 @@ def chunk():
     # per-campaign replay. Sent by send.py --set-campaign at /gm load. May arrive with
     # or without text.
     if "campaign" in data:
+        campaign = str(data["campaign"]).strip()
+        if not campaign:
+            return "Campaign name required", 400
         try:
             with open(CAMP_FILE, "w") as f:
-                f.write(str(data["campaign"]).strip())
+                f.write(campaign)
             _load_log()
             _load_tail()
-        except Exception:
-            pass
+            # A campaign switch is a /gm load lifecycle trigger: normalize from
+            # state.md and replace the entire quest snapshot before broadcasting.
+            _refresh_campaign_quests(campaign)
+        except (OSError, ValueError) as exc:
+            return f"Campaign quest refresh failed: {exc}", 400
         # Resolve and stash the system version for this campaign so the sidebar
         # badge can render. Empty string when the field is unset (legacy
         # campaigns predating the field — they should be migrated via
@@ -1249,12 +1310,43 @@ def chunk():
         # so a missing paths import or malformed state.md never breaks /chunk.
         try:
             from paths import campaign_system_version as _campaign_system_version
-            _sv = _campaign_system_version(str(data["campaign"]).strip())
+            _sv = _campaign_system_version(campaign)
             with _stats_lock:
                 _current_stats["system_version"] = _sv
-                _broadcast({"stats": dict(_current_stats)})
         except Exception:
             pass
+        _persist_stats()
+        with _stats_lock:
+            campaign_stats = dict(_current_stats)
+        _broadcast({"stats": campaign_stats})
+
+    # XP dispositions are structured, bodyless feed events. Persist them so a
+    # reconnect replays the same award/defer summary without touching stats.
+    if isinstance(data.get("xp_award"), dict):
+        incoming = data["xp_award"]
+        allowed_statuses = {
+            "awarded", "deferred-to-milestone", "bundled-into-quest", "waived",
+            "blocked-duplicate-check", "error-needs-review",
+        }
+        required = ("status", "event_id", "name", "category", "xp")
+        if any(key not in incoming for key in required):
+            return "Malformed XP event", 400
+        if incoming.get("status") not in allowed_statuses:
+            return "Unsupported XP status", 400
+        public_keys = {
+            "status", "event_id", "name", "category", "xp", "names", "reason",
+            "total", "level_up_available", "deferred_into", "trigger", "amount_handling",
+        }
+        xp_event = {key: incoming[key] for key in public_keys if key in incoming}
+        log_entry = {"xp_award": xp_event}
+        with _text_log_lock:
+            _text_log.append(log_entry)
+        with _tail_lock:
+            _tail_buffer.append(log_entry)
+        _persist_log()
+        _persist_tail()
+        _broadcast(log_entry)
+        return "", 204
 
     # Milestone award/spend — system-agnostic event for "the GM rewarded great play".
     # Renders as a gold-glow block in the feed. The system module supplies the label
@@ -1291,16 +1383,29 @@ def chunk():
     is_npc    = bool(data.get("npc"))
     is_dice   = bool(data.get("dice"))
     is_tutor  = bool(data.get("tutor"))
+    is_player_ooc  = bool(data.get("player_ooc"))
+    is_gm_ooc      = bool(data.get("gm_ooc"))
+    is_player_meta = bool(data.get("player_meta"))
+    is_gm_meta     = bool(data.get("gm_meta"))
+    is_sideband = is_player_ooc or is_gm_ooc or is_player_meta or is_gm_meta
 
-    # Player/npc/dice/tutor/action text comes from send.py (no ANSI/chrome) — light clean only.
+    # Typed text comes from send.py (no ANSI/chrome) — light clean only.
     # DM narration may come from wrapper.py — full clean.
-    cleaned = raw.strip() if (is_action or is_player or is_npc or is_dice or is_tutor) else _clean(raw)
+    cleaned = raw.strip() if (is_action or is_player or is_npc or is_dice or is_tutor or is_sideband) else _clean(raw)
     if not cleaned.strip():
         return "", 204
 
     payload: dict = {"text": cleaned}
 
-    if is_action:
+    if is_player_ooc:
+        payload["player_ooc"] = data["player_ooc"]
+    elif is_gm_ooc:
+        payload["gm_ooc"] = True
+    elif is_player_meta:
+        payload["player_meta"] = data["player_meta"]
+    elif is_gm_meta:
+        payload["gm_meta"] = True
+    elif is_action:
         payload["action"] = data["action"]
     elif is_player:
         payload["player"] = data["player"]
@@ -1321,9 +1426,17 @@ def chunk():
         if _audio:
             _audio.on_text(cleaned)
 
-    # Store full typed payload so replay preserves action/player/npc/dice/tutor context
+    # Store full typed payload so live and replay dispatch use the same channel.
     log_entry: dict = {"text": cleaned}
-    if is_action:
+    if is_player_ooc:
+        log_entry["player_ooc"] = data["player_ooc"]
+    elif is_gm_ooc:
+        log_entry["gm_ooc"] = True
+    elif is_player_meta:
+        log_entry["player_meta"] = data["player_meta"]
+    elif is_gm_meta:
+        log_entry["gm_meta"] = True
+    elif is_action:
         log_entry["action"] = data["action"]
     elif is_player:
         log_entry["player"] = data["player"]
@@ -1354,9 +1467,121 @@ def chunk():
     return "", 204
 
 
+_SIDEBAR_FRIENDLY_SIDES = {"party", "ally", "friendly", "pc", "companion", "summon"}
+_SIDEBAR_ENEMY_SIDES = {"enemy", "hostile", "foe", "monster"}
+_SIDEBAR_IDENTITY_KEYS = {"race", "class", "level", "ac", "ability_scores", "sheet", "background"}
+_ENCOUNTER_STATES = {"active", "fleeing", "surrendered", "unconscious", "defeated", "dead", "escaped", "inactive"}
+_ENCOUNTER_DISPOSITIONS = {"hostile", "neutral"}
+_ENCOUNTER_WOUND_BANDS = {
+    "Uninjured", "Lightly Wounded", "Bloodied", "Badly Wounded", "Near Defeat"
+}
+
+
+def _sidebar_actor_excluded(actor: dict) -> bool:
+    side = str(actor.get("side") or actor.get("type") or "").strip().lower()
+    return side in _SIDEBAR_ENEMY_SIDES or actor.get("active") is False or bool(actor.get("defeated"))
+
+
+def _is_persistent_sidebar_actor(actor: dict) -> bool:
+    """Only party/allied actors belong in the persistent character-card list."""
+    if _sidebar_actor_excluded(actor):
+        return False
+    side = str(actor.get("side") or actor.get("type") or "").strip().lower()
+    if side:
+        return side in _SIDEBAR_FRIENDLY_SIDES
+    # Legacy character payloads predate `side`; require identity data so a
+    # condition-only tracker update cannot create an enemy player card.
+    return bool(_SIDEBAR_IDENTITY_KEYS.intersection(actor))
+
+
+def _normalize_encounter_actor(actor: dict) -> dict | None:
+    """Return only player-visible encounter fields for persistence and SSE."""
+    if not isinstance(actor, dict):
+        return None
+
+    identity_known = actor.get("identity_known") is not False
+    label = actor.get("name") if identity_known else actor.get("description")
+    label = str(label or actor.get("description") or "Unknown hostile").strip()
+    if not label:
+        return None
+
+    state = str(actor.get("state") or "active").strip().lower()
+    if state not in _ENCOUNTER_STATES:
+        state = "active"
+    if actor.get("active") is False and state == "active":
+        state = "inactive"
+
+    disposition = str(actor.get("disposition") or actor.get("side") or "hostile").strip().lower()
+    if disposition not in _ENCOUNTER_DISPOSITIONS:
+        disposition = "hostile"
+
+    public: dict = {
+        "id": str(actor.get("id") or label).strip(),
+        "name": label,
+        "disposition": disposition,
+        "state": state,
+    }
+
+    conditions = actor.get("conditions")
+    if isinstance(conditions, list):
+        public["conditions"] = [str(item) for item in conditions if str(item).strip()]
+
+    for key in ("distance", "range_band"):
+        value = actor.get(key)
+        if value is not None and str(value).strip():
+            public[key] = str(value).strip()
+    for key in ("initiative", "initiative_position"):
+        value = actor.get(key)
+        if value is not None:
+            public[key] = value
+
+    inspected = bool(actor.get("inspected"))
+    hp_known = inspected or bool(actor.get("hp_known")) or bool(actor.get("hp_public"))
+    hp = actor.get("hp")
+    if hp_known and isinstance(hp, dict):
+        public["hp"] = {
+            key: hp[key] for key in ("current", "max", "temp") if hp.get(key) is not None
+        }
+        public["hp_known"] = True
+    else:
+        wound_band = str(actor.get("wound_band") or "").strip().title()
+        public["wound_band"] = wound_band if wound_band in _ENCOUNTER_WOUND_BANDS else "Unknown"
+        public["hp_known"] = False
+
+    ac_known = inspected or bool(actor.get("ac_known")) or bool(actor.get("ac_public"))
+    if ac_known and actor.get("ac") is not None:
+        public["ac"] = actor["ac"]
+        public["ac_known"] = True
+
+    if inspected:
+        public["inspected"] = True
+    return public
+
+
+@app.route("/quests/refresh", methods=["POST"])
+def refresh_quests():
+    """Explicitly rebuild the active display quest cache from campaign state.md."""
+    if not _token_ok():
+        return "Forbidden", 403
+    campaign = _active_campaign()
+    if not campaign:
+        return "No active campaign", 409
+    try:
+        snapshot = _refresh_campaign_quests(campaign)
+    except (OSError, ValueError) as exc:
+        return f"Quest refresh failed: {exc}", 400
+    _persist_stats()
+    snapshot_stats = {
+        "quests": snapshot["quests"],
+        "quests_meta": _quest_meta(snapshot),
+    }
+    _broadcast({"stats": snapshot_stats})
+    return "", 204
+
+
 @app.route("/stats", methods=["POST"])
 def stats():
-    """Receive character/combat stat updates. Merges players by name, replaces turn_order.
+    """Receive character/combat updates. Merges players; replaces encounter actors and turn order.
 
     Pass replace_players=true to replace the entire player list (use on /dnd load to
     prevent stale characters from a previous campaign persisting in the sidebar).
@@ -1367,6 +1592,25 @@ def stats():
     if not data:
         return "", 204
 
+    quest_snapshot = None
+    if "quests" in data:
+        campaign = _active_campaign()
+        previous = None
+        if campaign:
+            try:
+                previous = _load_quest_snapshot(_find_campaign(campaign), campaign)
+            except (OSError, ValueError):
+                previous = None
+        try:
+            quest_snapshot = _normalize_quest_snapshot(data["quests"], campaign, previous=previous)
+        except ValueError as exc:
+            return str(exc), 400
+        if campaign:
+            try:
+                _write_quest_snapshot(_find_campaign(campaign), quest_snapshot)
+            except (OSError, ValueError) as exc:
+                return f"Quest cache write failed: {exc}", 500
+
     _effect_expire_events: list[dict] = []
     with _stats_lock:
         if "players" in data:
@@ -1374,11 +1618,20 @@ def stats():
             if data.get("replace_players"):
                 _current_stats["players"] = []
             existing_players: list = _current_stats.setdefault("players", [])
+            # Remove actors explicitly marked enemy, inactive, or defeated.
+            # Keep legacy partial records so mutation-only updates can still
+            # target them; the browser independently requires allied identity
+            # data before rendering a persistent sidebar card.
+            existing_players[:] = [p for p in existing_players if not _sidebar_actor_excluded(p)]
             for incoming in data["players"]:
                 name = incoming.get("name")
                 if not name:
                     continue
                 match = next((p for p in existing_players if p.get("name") == name), None)
+                if _sidebar_actor_excluded(incoming):
+                    if match:
+                        existing_players.remove(match)
+                    continue
                 # Keys prefixed with _ are mutation ops, not stored fields
                 _MUTATION_KEYS = {
                     "_inventory_add", "_inventory_remove",
@@ -1478,10 +1731,22 @@ def stats():
                         else:
                             match[key] = val
                 else:
-                    # Strip mutation ops — they're meaningless for new players
-                    existing_players.append(
-                        {k: v for k, v in incoming.items() if k not in _MUTATION_KEYS}
-                    )
+                    # Partial tracker updates must not create character cards.
+                    # New entries need an allied side or legacy identity fields.
+                    if _is_persistent_sidebar_actor(incoming):
+                        existing_players.append(
+                            {k: v for k, v in incoming.items() if k not in _MUTATION_KEYS}
+                        )
+
+        # Encounter actors replace entirely. Normalize to a strict public schema
+        # before persistence/broadcast so hidden combat data never reaches clients.
+        if "encounter_actors" in data:
+            if not isinstance(data["encounter_actors"], list):
+                return "encounter_actors must be a list", 400
+            _current_stats["encounter_actors"] = [
+                normalized for actor in data["encounter_actors"]
+                if (normalized := _normalize_encounter_actor(actor)) is not None
+            ]
 
         # turn_order replaces entirely (None = clear); also ticks round-based effects
         _effect_expire_events: list[dict] = []
@@ -1535,9 +1800,10 @@ def stats():
                 validated_factions.append(_f)
             _current_stats["factions"] = validated_factions
 
-        # quests replaces entirely ([] clears)
-        if "quests" in data:
-            _current_stats["quests"] = data["quests"]
+        # Quests replace entirely. Only display-safe normalized fields survive.
+        if quest_snapshot is not None:
+            _current_stats["quests"] = quest_snapshot["quests"]
+            _current_stats["quests_meta"] = _quest_meta(quest_snapshot)
 
         current = dict(_current_stats)
 
@@ -1549,7 +1815,7 @@ def stats():
             with _autorun_cycle_lock:
                 _autorun_cycle = None
         _broadcast({"autorun_waiting": bool(data["autorun_waiting"])})
-        if not any(k in data for k in ("players", "turn_order", "world_time", "factions",
+        if not any(k in data for k in ("players", "encounter_actors", "turn_order", "world_time", "factions",
                                         "quests", "replace_players", "sheet", "autorun_cycle")):
             return "", 204
 
@@ -1557,8 +1823,8 @@ def stats():
         with _autorun_cycle_lock:
             _autorun_cycle = data["autorun_cycle"]
         _broadcast({"autorun_cycle": data["autorun_cycle"]})
-        if not any(k in data for k in ("players", "turn_order", "world_time", "factions",
-                                        "replace_players", "sheet", "autorun_threshold")):
+        if not any(k in data for k in ("players", "encounter_actors", "turn_order", "world_time", "factions",
+                                        "quests", "replace_players", "sheet", "autorun_threshold")):
             return "", 204
 
     if "autorun_threshold" in data:
@@ -1566,8 +1832,8 @@ def stats():
         val = data["autorun_threshold"]
         _autorun_threshold = int(val) if val is not None else None
         _broadcast({"autorun_threshold": _autorun_threshold})
-        if not any(k in data for k in ("players", "turn_order", "world_time", "factions",
-                                        "replace_players", "sheet")):
+        if not any(k in data for k in ("players", "encounter_actors", "turn_order", "world_time", "factions",
+                                        "quests", "replace_players", "sheet")):
             return "", 204
 
     # Explicit system-version override (e.g. push_stats.py --system-version 2024).
@@ -1583,7 +1849,13 @@ def stats():
             current = dict(_current_stats)
 
     _persist_stats()
-    _broadcast({"stats": current})
+    broadcast_stats = current
+    if quest_snapshot is not None and set(data) == {"quests"}:
+        broadcast_stats = {
+            "quests": quest_snapshot["quests"],
+            "quests_meta": _quest_meta(quest_snapshot),
+        }
+    _broadcast({"stats": broadcast_stats})
     # Broadcast any round-based effect expiries after the stats update
     for evt in _effect_expire_events:
         _broadcast({"effect_expired": evt})

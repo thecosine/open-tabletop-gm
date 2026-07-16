@@ -21,9 +21,9 @@ if [[ -z "$CAMP" ]]; then
 fi
 
 # Resolve the campaign root the same way scripts/paths.py does.
-# GM_CAMPAIGN_ROOT env var > default ~/open-tabletop-gm/campaigns
-ROOT="${GM_CAMPAIGN_ROOT:-$HOME/open-tabletop-gm/campaigns}"
-TAIL="$ROOT/$CAMP/session_tail.json"
+# GM_CAMPAIGN_ROOT is the data-tree root; campaigns live below campaigns/.
+ROOT="${GM_CAMPAIGN_ROOT:-$HOME/open-tabletop-gm}"
+TAIL="$ROOT/campaigns/$CAMP/session_tail.json"
 
 if [[ ! -f "$TAIL" ]]; then
   echo "verify_tail.sh: $TAIL — MISSING"
@@ -52,7 +52,7 @@ if not isinstance(data, list):
 if not data:
     print(f"verify_tail.sh: {path} — EMPTY LIST")
     sys.exit(1)
-if not all(isinstance(e, dict) and ("text" in e or "player" in e or "npc" in e or "dice" in e) for e in data):
+if not all(isinstance(e, dict) and ("text" in e or "player" in e or "npc" in e or "dice" in e or "xp_award" in e) for e in data):
     print(f"verify_tail.sh: {path} — entries not in expected shape")
     sys.exit(1)
 print(f"verify_tail.sh: {path} — HEALTHY ({len(data)} entries)")

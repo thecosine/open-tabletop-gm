@@ -21,8 +21,12 @@
 -
 
 ### XP Awarded
+- Event ID | category | status | amount | awarded through/target | running total
 - Total this session:
 - Running total:
+
+### XP Deferred / Review
+- Event ID | status | reason | target | trigger | amount handling
 
 ### Loot & Changes
 -

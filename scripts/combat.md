@@ -85,10 +85,15 @@ python3 $SKILL/scripts/tracker.py -c $CAMP clear --all  # also clears death save
 ```bash
 SKILL=<skill-base>
 
-# Combat start — push turn order
+# Combat start — push turn order and the display-safe hostile roster
 python3 $SKILL/display/push_stats.py \
   --turn-order '[{"name":"NAME","initiative":N,"type":"pc"}]' \
   --turn-current "NAME" --turn-round 1
+python3 $SKILL/display/push_stats.py --encounter-actors '[
+  {"id":"enemy-1","description":"Armored raider","identity_known":false,
+   "disposition":"hostile","state":"active","wound_band":"Uninjured",
+   "range_band":"Near","initiative":N}
+]'
 
 # Advance turn
 python3 $SKILL/display/push_stats.py --turn-current "NEXT_NAME"
@@ -96,9 +101,13 @@ python3 $SKILL/display/push_stats.py --turn-current "NEXT_NAME"
 # New round
 python3 $SKILL/display/push_stats.py --turn-current "NAME" --turn-round N
 
-# HP change
+# Enemy HP change — replace encounter_actors. Keep unknown HP as wound_band;
+# set inspected=true only after a successful appropriate Inspect.
+python3 $SKILL/display/push_stats.py --encounter-actors '[...]'
+
+# Party/allied HP change
 python3 $SKILL/display/push_stats.py --player NAME --hp <current> <max>
 
-# Combat ended
-python3 $SKILL/display/push_stats.py --turn-clear
+# Combat ended — clear initiative and the encounter panel
+python3 $SKILL/display/push_stats.py --turn-clear --encounter-actors '[]'
 ```

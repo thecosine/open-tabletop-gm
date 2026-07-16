@@ -169,10 +169,16 @@ def _validate_payload(payload: dict, endpoint: str) -> "list[str]":
     if endpoint == "chunk":
         text = payload.get("text", "")
         has_text = bool(text and str(text).strip())
-        has_award = bool(payload.get("milestone_award") or payload.get("milestone_spend"))
+        has_award = bool(
+            payload.get("milestone_award") or payload.get("milestone_spend")
+            or payload.get("xp_award")
+        )
         if not has_text and not has_award and not payload.get("campaign"):
             issues.append("chunk payload has no text, no award flag, and no campaign tag")
-        content_tags = [k for k in ("player", "npc", "dice", "tutor", "action") if payload.get(k)]
+        content_tags = [k for k in (
+            "player_ooc", "gm_ooc", "player_meta", "gm_meta",
+            "player", "npc", "dice", "tutor", "action",
+        ) if payload.get(k)]
         if len(content_tags) > 1:
             issues.append(f"chunk payload has multiple content tags: {content_tags}")
     elif endpoint == "stats":
@@ -380,6 +386,14 @@ def main() -> None:
         "--action", metavar="NAME",
         help="Send as a player action intent — subdued label echoing what the player declared",
     )
+    parser.add_argument("--player-ooc", metavar="NAME",
+        help="Send an exact player OOC question using the out-of-character channel")
+    parser.add_argument("--gm-ooc", action="store_true",
+        help="Send the GM's direct OOC answer using the out-of-character channel")
+    parser.add_argument("--player-meta", metavar="NAME",
+        help="Send an exact player campaign-management message using the META channel")
+    parser.add_argument("--gm-meta", action="store_true",
+        help="Send the GM's campaign-management response using the META channel")
 
     # ── Dice request (GM → player phones) ────────────────────────────────────
     parser.add_argument("--dice-request", action="store_true",
@@ -440,6 +454,8 @@ def main() -> None:
     parser.add_argument("--milestone-label", metavar="TEXT",
         help='Optional label for the milestone type (default: "Milestone"). '
              'Use the system-specific name: "Inspiration", "Bennie", "Hero Point", "Fate Point", etc.')
+    parser.add_argument("--xp-event", metavar="JSON",
+        help="Render a bodyless XP disposition summary. JSON must include status, event_id, name, category, and xp.")
 
     # ── Diagnostics ───────────────────────────────────────────────────────────
     parser.add_argument("--verify", action="store_true",
@@ -541,18 +557,44 @@ def main() -> None:
         # Note: otgm has milestone-* but not the inspiration/xp-award flags from
         # the dnd-skill side, so we check only the flags that exist here.
         _other = (args.player or args.npc or args.dice or args.tutor or args.action
-                  or args.milestone_award or args.milestone_spend or args.verify)
+                  or args.player_ooc or args.gm_ooc or args.player_meta or args.gm_meta
+                  or args.milestone_award or args.milestone_spend or args.xp_event or args.verify)
         if not _other:
             return
 
     _has_content_flag = bool(
         args.player or args.npc or args.dice or args.tutor or args.action
+        or args.player_ooc or args.gm_ooc or args.player_meta or args.gm_meta
     )
     if _has_content_flag:
         text = sys.stdin.read()
     else:
         text = "" if sys.stdin.isatty() else sys.stdin.read()
     token = _read_token()
+
+    # ── XP event summary ──────────────────────────────────────────────────────
+    if args.xp_event:
+        try:
+            xp_event = json.loads(args.xp_event)
+        except json.JSONDecodeError as exc:
+            print(f"send.py: invalid --xp-event JSON: {exc}", file=sys.stderr)
+            sys.exit(2)
+        if not isinstance(xp_event, dict):
+            print("send.py: --xp-event must be a JSON object", file=sys.stderr)
+            sys.exit(2)
+        required = {"status", "event_id", "name", "category", "xp"}
+        missing = sorted(required - xp_event.keys())
+        if missing:
+            print(f"send.py: --xp-event missing fields: {', '.join(missing)}", file=sys.stderr)
+            sys.exit(2)
+        allowed_statuses = {
+            "awarded", "deferred-to-milestone", "bundled-into-quest", "waived",
+            "blocked-duplicate-check", "error-needs-review",
+        }
+        if xp_event["status"] not in allowed_statuses:
+            print(f"send.py: unsupported XP status: {xp_event['status']}", file=sys.stderr)
+            sys.exit(2)
+        _post(FLASK_URL, json.dumps({"xp_award": xp_event}).encode("utf-8"), token)
 
     # ── Milestone award/spend (generic — system-agnostic) ────────────────────
     # The label argument lets a system module map this to system-specific
@@ -594,6 +636,10 @@ def main() -> None:
     # empty broadcast.
     if _has_content_flag and not text.strip():
         flag = (
+            "--player-ooc" if args.player_ooc else
+            "--gm-ooc" if args.gm_ooc else
+            "--player-meta" if args.player_meta else
+            "--gm-meta" if args.gm_meta else
             "--player" if args.player else
             "--npc"    if args.npc    else
             "--dice"   if args.dice   else
@@ -613,7 +659,15 @@ def main() -> None:
         if text.strip():
             payload["text"] = text
             # Attach any message-type flags
-            if args.action:
+            if args.player_ooc:
+                payload["player_ooc"] = args.player_ooc
+            elif args.gm_ooc:
+                payload["gm_ooc"] = True
+            elif args.player_meta:
+                payload["player_meta"] = args.player_meta
+            elif args.gm_meta:
+                payload["gm_meta"] = True
+            elif args.action:
                 payload["action"] = args.action
             elif args.player:
                 payload["player"] = args.player
@@ -632,10 +686,21 @@ def main() -> None:
             chunks_sent += 1
     # ── Text send ─────────────────────────────────────────────────────────────
     elif text.strip():
-        chunks = _split_paragraphs(text)
+        # Sideband exchanges are atomic: preserve the exact question/answer as
+        # one replay entry rather than splitting paragraphs into narration chunks.
+        is_sideband = args.player_ooc or args.gm_ooc or args.player_meta or args.gm_meta
+        chunks = [text.strip()] if is_sideband else _split_paragraphs(text)
         for chunk in chunks:
             payload = {"text": chunk}
-            if args.action:
+            if args.player_ooc:
+                payload["player_ooc"] = args.player_ooc
+            elif args.gm_ooc:
+                payload["gm_ooc"] = True
+            elif args.player_meta:
+                payload["player_meta"] = args.player_meta
+            elif args.gm_meta:
+                payload["gm_meta"] = True
+            elif args.action:
                 payload["action"] = args.action
             elif args.player:
                 payload["player"] = args.player

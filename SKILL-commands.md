@@ -30,6 +30,7 @@ Do NOT run `git init` or any git commands in campaign directories.
 | `/gm character sheet [name]` | Read and display characters/<name>.md. |
 | `/gm characters` | List all characters in the global roster. |
 | `/gm tutor on\|off` | Toggle tutor mode. Write `tutor_mode: true\|false` to state.md. |
+| `/gm autorun on\|off` | Start or stop the singleton browser-input poller. Requires OpenCode to run under `display/wrapper.py`. Follow `/gm autorun` branch. |
 | `/gm display <on\|off> [--lan]` | Start or stop the display companion. Follow `/gm display` branch. Start before `/gm load` if you want it active. |
 | `/gm npc <name>` | Generate or retrieve an NPC. Write to npcs.md / npcs-full.md. **New:** before write, run `name_registry.py check` and surface any prior use; record after write. |
 | `/gm npc rename "Old Name" <"New Name"\|random> [--type pc] [--dry-run] [--yes] [--include-archive]` | Rename a character across npcs.md, npcs-full.md, state.md, session-log.md, world.md, session_tail.json, graph.json (node + edges preserved), and `characters/<slug>.md` if `--type pc`. Backs up the campaign first. `--random` picks from a bundled fantasy-name corpus, rejecting any slug already in the registry. session-log-archive.md left untouched by default + audit note added. Maps to: `python3 <skill-base>/scripts/npc_rename.py --campaign <current> --old "..." --new "..."`. |

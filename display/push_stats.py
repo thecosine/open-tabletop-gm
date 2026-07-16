@@ -52,6 +52,12 @@ Usage:
     python3 push_stats.py --factions '[{"name":"Pale Court","standing":"Suspicious"},{"name":"Merchant Guild","standing":"Friendly"}]'
     python3 push_stats.py --factions '[]'   # clear all
 
+    # Rebuild quests from the active campaign's state.md and push one snapshot:
+    python3 push_stats.py --refresh-quests
+
+    # Encounter actors — full replacement; [] ends/hides the encounter panel:
+    python3 push_stats.py --encounter-actors '[{"id":"goblin-1","description":"Goblin guard","disposition":"hostile","state":"active","wound_band":"Bloodied","range_band":"Near"}]'
+
     # Combat — set full turn order:
     python3 push_stats.py --turn-order '{"order":["Goblin 1","Flerb"],"current":"Goblin 1","round":1}'
 
@@ -80,6 +86,7 @@ _DISPLAY_DIR = os.path.dirname(os.path.abspath(__file__))
 _SCHEME_FILE = os.path.join(_DISPLAY_DIR, ".scheme")
 _SCHEME = open(_SCHEME_FILE).read().strip() if os.path.exists(_SCHEME_FILE) else "http"
 FLASK_URL  = f"{_SCHEME}://localhost:5001/stats"
+QUEST_REFRESH_URL = f"{_SCHEME}://localhost:5001/quests/refresh"
 TOKEN_FILE = os.path.join(_DISPLAY_DIR, ".token")
 TIMEOUT    = 2.0
 
@@ -113,7 +120,7 @@ def _send(url: str, data: bytes, token: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Push stats to the DnD display server.")
     parser.add_argument("--json", metavar="JSON",
-                        help="Full or partial stats JSON (top-level keys: players, turn_order)")
+                        help="Full or partial stats JSON (players, encounter_actors, turn_order, etc.)")
     parser.add_argument("--player", metavar="NAME",
                         help="Target player name for shorthand flags below")
     parser.add_argument("--hp", nargs=2, metavar=("CURRENT", "MAX"), type=int,
@@ -152,6 +159,10 @@ def main() -> None:
                         help='Party faction standings: [{"name":"Pale Court","standing":"Suspicious"},...]; [] clears')
     parser.add_argument("--quests", metavar="JSON",
                         help='Quest tracker: [{"name":"The Ward-Points","status":"resolved"},{"name":"Vedra Ceth","status":"threat"},...]; [] clears. Status values: active, threat, resolved, failed')
+    parser.add_argument("--refresh-quests", action="store_true",
+                        help="Rebuild and push quests from the active campaign state.md")
+    parser.add_argument("--encounter-actors", metavar="JSON",
+                        help='Full replacement encounter actor list; [] clears and hides the right panel')
     parser.add_argument("--turn-order", metavar="JSON",
                         help='Full turn order JSON: {"order":[...],"current":"Name","round":1}')
     parser.add_argument("--turn-current", metavar="NAME",
@@ -175,9 +186,14 @@ def main() -> None:
     parser.add_argument("--system-version", metavar="VALUE",
                         help="Override the system-version badge displayed in the sidebar. "
                              "Opaque to the display — pass whatever the system module uses "
-                             "(e.g. 2014, 2024, 1e). Server normally auto-resolves this from "
-                             "the active campaign's state.md when send.py --set-campaign fires.")
+                              "(e.g. 2014, 2024, 1e). Server normally auto-resolves this from "
+                              "the active campaign's state.md when send.py --set-campaign fires.")
     args = parser.parse_args()
+
+    if args.refresh_quests and args.quests is not None:
+        parser.error("--refresh-quests cannot be combined with --quests")
+    if args.refresh_quests:
+        _send(QUEST_REFRESH_URL, b"{}", _read_token())
 
     payload: dict = {}
 
@@ -266,22 +282,39 @@ def main() -> None:
             print(f"Invalid quests JSON: {e}", file=sys.stderr)
             sys.exit(1)
 
+    # ── Encounter actors ────────────────────────────────────────────────────────
+    if args.encounter_actors is not None:
+        try:
+            encounter_actors = json.loads(args.encounter_actors)
+        except json.JSONDecodeError as e:
+            print(f"Invalid encounter-actors JSON: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(encounter_actors, list):
+            print("Encounter actors JSON must be a list", file=sys.stderr)
+            sys.exit(1)
+        payload["encounter_actors"] = encounter_actors
+
     # ── Turn order ─────────────────────────────────────────────────────────────
     if args.turn_order:
         try:
-            payload["turn_order"] = json.loads(args.turn_order)
+            parsed_turn_order = json.loads(args.turn_order)
+            payload["turn_order"] = (
+                {"order": parsed_turn_order}
+                if isinstance(parsed_turn_order, list)
+                else parsed_turn_order
+            )
         except json.JSONDecodeError as e:
             print(f"Invalid turn-order JSON: {e}", file=sys.stderr)
             sys.exit(1)
 
     if args.turn_current:
-        # Partial update: just advance the pointer
-        payload["turn_order"] = {"current": args.turn_current}
+        # Merge the pointer into a full order supplied in the same command.
+        payload.setdefault("turn_order", {})["current"] = args.turn_current
         if args.turn_round:
             payload["turn_order"]["round"] = args.turn_round
 
     if args.turn_round and not args.turn_current:
-        payload["turn_order"] = {"round": args.turn_round}
+        payload.setdefault("turn_order", {})["round"] = args.turn_round
 
     if args.turn_clear:
         payload["turn_order"] = None
@@ -321,6 +354,8 @@ def main() -> None:
             return
 
     if not payload:
+        if args.refresh_quests:
+            return
         print("Nothing to push. Use --help for usage.", file=sys.stderr)
         return
 

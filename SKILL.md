@@ -281,17 +281,35 @@ g. push_stats.py --turn-current  ← advance turn pointer
 
 ## Experience & Progression
 
-How characters advance is defined by the active game system (`systems/<system>/system.md`). The GM's role is to award the right amount at the right time — not to calculate it in context.
+How characters advance is defined by the active game system (`systems/<system>/system.md`). Every awardable event must have a stable unique event ID before resolution. Use IDs shaped like `<category>-<campaign-or-location>-<semantic-name>-NNN`; never reuse an ID.
 
-**When to award:** after every resolved encounter that presented genuine challenge. This includes:
-- Combat encounters (every fight that taxed resources or threatened the party)
-- Significant social challenges where failure was possible and consequential
-- Investigation or mystery milestones where the party exercised real skill or ingenuity
-- Dangerous non-combat tasks (infiltration, escape, ritual completion under pressure)
+**Awardable events:** combat encounters, exploration discoveries, rescues, quest objectives, diplomacy outcomes, crafting breakthroughs, trade-assimilation milestones, dungeon milestones, story milestones, and other meaningful noncombat events where success or failure mattered. Do not award for routine travel, trivial conversations, rest, automatic successes, or scenes the party could not plausibly fail.
 
-Do NOT award for: routine travel, trivial conversations, rest, automatic successes, or anything the party could not plausibly have failed.
+At event resolution, determine and record exactly one XP status:
 
-**Rate the difficulty as it was experienced**, not as designed. If a fight ended in one round, rate it Easy regardless of the monsters' CR.
+- `awarded`
+- `deferred-to-milestone`
+- `bundled-into-quest`
+- `waived`
+- `blocked-duplicate-check`
+- `error-needs-review`
+
+Do not create generic `not-awarded` records. Ordinary encounter XP is immediate; never defer it merely because a larger quest remains open.
+
+**Immediate award rule:** when the event is resolved, its amount is known, it is not explicitly deferred/bundled, its ID is absent from progression history, and its record is not already awarded, run the progression award exactly once for the full amount. Do not divide synchronized progression XP. Record event ID, amount, before/after total, and browser summary. A qualified level-up remains pending until a long rest and explicit approval.
+
+**Deferred rule:** `deferred-to-milestone` and `bundled-into-quest` records must include a reason, an existing target event/quest/milestone ID, an exact trigger, and amount handling (`included-in-target` or `added-separately`). When the target resolves, collect only explicitly linked sources, verify none appear in progression history, award the predefined/combined result once through the target ID, then mark every linked source `awarded` with `awarded_through: <target-id>`.
+
+Stop and request confirmation instead of awarding if records may duplicate one event, amounts conflict, a deferred target is missing, progression history may already contain the event, the status is ambiguous, or the amount is unusually large.
+
+For Mythlon, use `scripts/mythlon_xp_event.py`; it owns `campaigns/<name>/xp-events.json`, calls the synchronized progression engine idempotently, updates campaign/browser XP, and emits `XP AWARDED` or `XP DEFERRED` summaries. Register future quest/milestone targets before linking deferred sources:
+
+```bash
+python3 scripts/mythlon_xp_event.py register --campaign NAME --event-id ID --name LABEL --category milestone
+python3 scripts/mythlon_xp_event.py resolve --campaign NAME --event-id ID --name LABEL --category combat --amount N --status awarded
+```
+
+**Rate difficulty as experienced**, not as designed, when the system requires a difficulty-based amount.
 
 | Tier | Feel |
 |------|------|
