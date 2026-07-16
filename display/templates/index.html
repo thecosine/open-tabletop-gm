@@ -1143,6 +1143,39 @@
   .dashboard-condition-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .dashboard-condition-list .sb-condition-pill { font-size: 10px; }
   .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .dashboard-people-list { display: grid; gap: 10px; }
+  .dashboard-person-card {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 12px;
+    min-width: 0;
+    padding: 12px;
+    background: rgba(255,255,255,0.025);
+    border-left: 2px solid rgba(180,140,60,0.3);
+  }
+  .dashboard-person-portrait-slot { width: 64px; height: 64px; }
+  .dashboard-person-portrait {
+    display: grid;
+    width: 64px;
+    height: 64px;
+    box-sizing: border-box;
+    place-items: center;
+    object-fit: cover;
+    color: rgba(235,215,165,0.88);
+    background: rgba(10,12,15,0.9);
+    border: 1px solid rgba(200,160,75,0.32);
+    border-radius: 3px;
+    font: 17px 'Cinzel', serif;
+    letter-spacing: 1px;
+  }
+  .dashboard-person-content { min-width: 0; }
+  .dashboard-person-name { color: rgba(239,215,150,0.96); font: 14px 'Cinzel', serif; }
+  .dashboard-person-aliases { margin-top: 2px; color: rgba(205,200,185,0.55); font-size: 10px; }
+  .dashboard-person-meta { margin-top: 7px; color: rgba(225,225,215,0.74); font-size: 11px; line-height: 1.55; }
+  .dashboard-person-meta-row + .dashboard-person-meta-row { margin-top: 2px; }
+  .dashboard-person-section { margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(180,140,60,0.14); }
+  .dashboard-person-label { color: rgba(200,165,80,0.65); font: 8px 'Cinzel', serif; letter-spacing: 1.2px; text-transform: uppercase; }
+  .dashboard-person-text { margin-top: 3px; color: rgba(225,220,205,0.78); font-size: 11px; line-height: 1.55; }
   .dashboard-placeholder {
     padding: 24px 12px;
     color: rgba(210,200,175,0.48);
@@ -1160,6 +1193,9 @@
     .dashboard-portrait.sb-player-portrait { width: 84px; height: 84px; flex-basis: 84px; }
     #dashboard-full-sheet { order: 3; }
     .dashboard-overview-grid { grid-template-columns: 1fr; }
+    .dashboard-person-card { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
+    .dashboard-person-portrait-slot,
+    .dashboard-person-portrait { width: 52px; height: 52px; }
     .dashboard-tab { padding-inline: 8px; }
   }
 
@@ -5196,6 +5232,31 @@ function _makePlayerPortrait(p, className) {
   return fragment;
 }
 
+function _makePeoplePortrait(person) {
+  const fallback = document.createElement('span');
+  fallback.className = 'dashboard-person-portrait class-icon-fallback';
+  fallback.textContent = _playerInitials(person.name);
+  fallback.setAttribute('role', 'img');
+  fallback.setAttribute('aria-label', `${person.name || 'NPC'} initials`);
+  const path = _normalizePortraitPath(person.portrait);
+  if (!path) return fallback;
+
+  fallback.classList.add('portrait-fallback-hidden');
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(fallback);
+  const image = document.createElement('img');
+  image.className = 'dashboard-person-portrait';
+  image.alt = `${person.name || 'NPC'} portrait`;
+  image.src = path;
+  image.addEventListener('error', () => {
+    image.hidden = true;
+    image.removeAttribute('src');
+    fallback.classList.remove('portrait-fallback-hidden');
+  }, {once: true});
+  fragment.appendChild(image);
+  return fragment;
+}
+
 const _BLOCK_BADGES = [
   { icon: 'attack',       words: ['attack','strikes','slash','stab','sword','blade','combat','initiative','damage','hit','miss','roll','dex','str','con','saving throw','critical','fumble'] },
   { icon: 'chat',         words: ['says','replies','whispers','mutters','speaks','voice','asks','answers','"','dialogue','npc','turns to you'] },
@@ -5895,6 +5956,8 @@ function renderReplay(text) {
 const _playerData = {};
 let _questCache = [];
 let _questMeta = {};
+let _peopleCache = [];
+let _peopleMeta = {};
 let _questReturnFocus = null;
 
 // ── CRIT / FUMBLE flash ─────────────────────────────────────────────
@@ -6334,6 +6397,88 @@ function _renderDashboardOverview(panel, p) {
   panel.appendChild(grid);
 }
 
+function _appendPersonSection(container, label, values) {
+  const present = values.filter(Boolean);
+  if (!present.length) return;
+  const section = document.createElement('div');
+  section.className = 'dashboard-person-section';
+  const title = document.createElement('div');
+  title.className = 'dashboard-person-label';
+  title.textContent = label;
+  const text = document.createElement('div');
+  text.className = 'dashboard-person-text';
+  text.textContent = present.join(' · ');
+  section.append(title, text);
+  container.appendChild(section);
+}
+
+function _renderDashboardPeople(panel, selectedPlayer) {
+  if (!_peopleCache.length) {
+    const empty = document.createElement('div');
+    empty.className = 'dashboard-placeholder dashboard-people-empty';
+    empty.textContent = 'No known people are available yet.';
+    panel.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'dashboard-people-list';
+  _peopleCache.forEach(person => {
+    const card = document.createElement('article');
+    card.className = 'dashboard-person-card';
+    card.dataset.personId = person.id || '';
+    const portrait = document.createElement('div');
+    portrait.className = 'dashboard-person-portrait-slot';
+    portrait.appendChild(_makePeoplePortrait(person));
+    const content = document.createElement('div');
+    content.className = 'dashboard-person-content';
+    const name = document.createElement('div');
+    name.className = 'dashboard-person-name';
+    name.textContent = person.name || '—';
+    content.appendChild(name);
+
+    if (Array.isArray(person.aliases) && person.aliases.length) {
+      const aliases = document.createElement('div');
+      aliases.className = 'dashboard-person-aliases';
+      aliases.textContent = `Also known as ${person.aliases.join(', ')}`;
+      content.appendChild(aliases);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'dashboard-person-meta';
+    [
+      ['Role', person.role],
+      ['Faction', person.faction],
+      ['Location', person.location],
+      ['General attitude', person.attitude],
+    ].forEach(([label, value]) => {
+      if (!value) return;
+      const row = document.createElement('div');
+      row.className = 'dashboard-person-meta-row';
+      row.textContent = `${label}: ${value}`;
+      meta.appendChild(row);
+    });
+    if (meta.childElementCount) content.appendChild(meta);
+
+    const selectedRelationships = Array.isArray(person.relationships)
+      ? person.relationships.filter(rel => rel && rel.player === selectedPlayer.name)
+      : [];
+    const dispositions = [...new Set(selectedRelationships.map(rel => rel.disposition).filter(Boolean))];
+    const types = [...new Set(selectedRelationships.map(rel => rel.type).filter(Boolean))]
+      .map(type => String(type).replaceAll('_', ' '));
+    const relationshipNotes = [...new Set(selectedRelationships.map(rel => rel.note).filter(Boolean))];
+    _appendPersonSection(
+      content,
+      `Relationship with ${selectedPlayer.name}`,
+      [...dispositions, ...types, ...relationshipNotes],
+    );
+    _appendPersonSection(content, 'Known details', [person.note]);
+    card.append(portrait, content);
+    list.appendChild(card);
+  });
+  panel.appendChild(list);
+}
+
 function _setDashboardTab(tabName) {
   _dashboardTab = tabName;
   const panel = document.getElementById('dashboard-tab-panel');
@@ -6348,6 +6493,10 @@ function _setDashboardTab(tabName) {
   if (!p) return;
   if (tabName === 'Overview') {
     _renderDashboardOverview(panel, p);
+    return;
+  }
+  if (tabName === 'People') {
+    _renderDashboardPeople(panel, p);
     return;
   }
   const placeholder = document.createElement('div');
@@ -7096,6 +7245,13 @@ function updateStats(stats) {
   const sidebar = document.getElementById('sidebar');
   const turnSection = document.getElementById('sb-turn-section');
   const hasPlayerSnapshot = Object.prototype.hasOwnProperty.call(stats, 'players');
+  const hasPeopleSnapshot = Object.prototype.hasOwnProperty.call(stats, 'people');
+  if (hasPeopleSnapshot) {
+    _peopleCache = Array.isArray(stats.people) ? stats.people.slice() : [];
+    _peopleMeta = stats.people_meta && typeof stats.people_meta === 'object'
+      ? Object.assign({}, stats.people_meta)
+      : {};
+  }
   if (hasPlayerSnapshot) {
     const incomingPlayers = (stats.players || []).filter(_isPersistentSidebarActor);
     const incomingNames = new Set(incomingPlayers.map(p => p.name));
@@ -7150,7 +7306,7 @@ function updateStats(stats) {
   }
 
   const names = Object.keys(_playerData);
-  if (hasPlayerSnapshot) _renderSelectedDashboard();
+  if (hasPlayerSnapshot || hasPeopleSnapshot) _renderSelectedDashboard();
   sidebar.classList.toggle(
     'has-data',
     names.length > 0 || Boolean(stats.turn_order)
@@ -8427,6 +8583,8 @@ function connect() {
       for (const key of Object.keys(_playerData)) delete _playerData[key];
       _questCache = [];
       _questMeta = {};
+      _peopleCache = [];
+      _peopleMeta = {};
       closeQuestModal();
       document.querySelectorAll('.sb-player').forEach(el => el.remove());
       document.querySelectorAll('.sb-quest-item').forEach(el => el.remove());
