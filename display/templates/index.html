@@ -2269,6 +2269,17 @@
     transition: opacity 0.2s;
   }
   .sb-player:hover .sb-class-icon { opacity: 0.6; }
+  .sb-player-portrait {
+    position: absolute;
+    top: 0; right: 0;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    object-fit: cover;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .sb-player:hover .sb-player-portrait { opacity: 0.8; }
+  .portrait-fallback-hidden { display: none !important; }
   .class-icon-fallback {
     display: grid;
     place-items: center;
@@ -4920,6 +4931,51 @@ function _makeClassIcon(classStr, className) {
   icon.setAttribute('aria-label', `${meta.label} class`);
   return icon;
 }
+function _playerInitials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || '—';
+}
+function _makePlayerFallback(p, className) {
+  const classIcon = _makeClassIcon(p.class, className);
+  if (classIcon) return classIcon;
+  const initials = document.createElement('span');
+  initials.className = `${className} class-icon-fallback`;
+  initials.textContent = _playerInitials(p.name);
+  initials.setAttribute('role', 'img');
+  initials.setAttribute('aria-label', `${p.name || 'Player'} initials`);
+  return initials;
+}
+function _normalizePortraitPath(value) {
+  if (typeof value !== 'string') return null;
+  const path = value.trim();
+  let decoded;
+  try { decoded = decodeURIComponent(path.split(/[?#]/, 1)[0]); }
+  catch (_) { return null; }
+  if (!path.startsWith('/static/') || !decoded.startsWith('/static/') ||
+      decoded.includes('..') || decoded.includes('\\') || /[?#]/.test(path) ||
+      /[\u0000-\u001f]/.test(path)) return null;
+  return path;
+}
+function _makePlayerPortrait(p, className) {
+  const fallback = _makePlayerFallback(p, className);
+  const path = _normalizePortraitPath(p.portrait);
+  if (!path) return fallback;
+
+  fallback.classList.add('portrait-fallback-hidden');
+  const fragment = document.createDocumentFragment();
+  fragment.appendChild(fallback);
+  const image = document.createElement('img');
+  image.className = `${className} sb-player-portrait`;
+  image.alt = `${p.name || 'Player'} portrait`;
+  image.src = path;
+  image.addEventListener('error', () => {
+    image.hidden = true;
+    image.removeAttribute('src');
+    fallback.classList.remove('portrait-fallback-hidden');
+  }, {once: true});
+  fragment.appendChild(image);
+  return fragment;
+}
 
 const _BLOCK_BADGES = [
   { icon: 'attack',       words: ['attack','strikes','slash','stab','sword','blade','combat','initiative','damage','hit','miss','roll','dex','str','con','saving throw','critical','fumble'] },
@@ -5880,9 +5936,8 @@ function _buildPlayerCard(p, solo) {
   card.className = 'sb-player';
   card.dataset.playerName = p.name;
 
-  // Class icon (top-right corner)
-  const classIco = _makeClassIcon(p.class, 'sb-class-icon');
-  if (classIco) card.appendChild(classIco);
+  // Portrait with class-icon and initials fallbacks (top-right corner)
+  card.appendChild(_makePlayerPortrait(p, 'sb-class-icon'));
 
   // Name
   const nameEl = document.createElement('div');

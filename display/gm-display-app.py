@@ -75,6 +75,7 @@ from quest_cache import (
     refresh_from_state as _refresh_quests_from_state,
     write_snapshot as _write_quest_snapshot,
 )
+from portrait_paths import normalize_player_records as _normalize_player_records
 
 # TTS module — degrades silently if Gemini API key not configured.
 # See docs/SKILL-tts.md for setup.
@@ -1591,6 +1592,14 @@ def stats():
     data = request.get_json(silent=True) or {}
     if not data:
         return "", 204
+    if not isinstance(data, dict):
+        return "stats payload must be an object", 400
+    if "players" in data:
+        try:
+            normalized_players = _normalize_player_records(data["players"])
+        except ValueError as exc:
+            return str(exc), 400
+        data = dict(data, players=normalized_players)
 
     quest_snapshot = None
     if "quests" in data:
