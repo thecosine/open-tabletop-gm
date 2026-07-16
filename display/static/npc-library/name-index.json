@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "pools": {
+    "human": {
+      "file": "names/human.json",
+      "count": 120
+    },
+    "elf": {
+      "file": "names/elf.json",
+      "count": 120
+    },
+    "dwarf": {
+      "file": "names/dwarf.json",
+      "count": 120
+    },
+    "halfling": {
+      "file": "names/halfling.json",
+      "count": 120
+    },
+    "fiend-blooded": {
+      "file": "names/fiend-blooded.json",
+      "count": 120
+    },
+    "miscellaneous": {
+      "file": "names/miscellaneous.json",
+      "count": 120
+    }
+  }
+}
