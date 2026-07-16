@@ -1199,7 +1199,7 @@ def index():
         "index.html",
         lan_token=_lan_token or "",
         narrator_voice=_read_narrator_voice(),
-        tts_available=(_tts is not None),
+        tts_available=(_tts is not None and _tts.key_source() != "unset"),
         ui_manifest=_load_ui_manifest(),
     )
 
