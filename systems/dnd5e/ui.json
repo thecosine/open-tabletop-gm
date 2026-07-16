@@ -6,11 +6,11 @@
   "_comment": "Reference manifest. Mirrors the renderer's built-in default exactly, so it reproduces the original hardcoded D&D 5e display. Widgets self-hide when their bound field is absent (a non-caster shows no spell slots, etc.). See systems/UI-MANIFEST.md for the widget catalog.",
 
   "sidebar": [
-    { "type": "bar", "label": "HP", "bind": "hp", "icon": "/icons/enemy.png",
+    { "type": "bar", "label": "HP", "bind": "hp", "icon": null,
       "row_class": "sb-hp-row", "num_class": "sb-hp-nums", "fill_role": "hp-fill",
       "cur": "current", "max": "max", "color": "hp", "temp": "temp" },
 
-    { "type": "bar", "label": "XP", "bind": "xp", "icon": "/icons/ability.png",
+    { "type": "bar", "label": "XP", "bind": "xp", "icon": null,
       "row_class": "sb-xp-row", "num_class": "sb-xp-nums", "fill_role": "xp-fill",
       "fill_class": "sb-xp-bar", "cur": "current", "max": "next", "require_cur": true },
 

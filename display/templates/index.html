@@ -45,10 +45,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
-<link rel="icon" type="image/x-icon"  href="/favicon.ico">
-<link rel="icon" type="image/png" sizes="32x32"  href="/icons/app_icon_32.png">
-<link rel="apple-touch-icon" sizes="180x180"      href="/icons/app_icon_180.png">
-<link rel="icon" type="image/png" sizes="192x192" href="/icons/app_icon_192.png">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -4940,11 +4936,20 @@ function _addBlockBadge(el) {
   const text = (el.textContent || '').toLowerCase();
   for (const { icon, words } of _BLOCK_BADGES) {
     if (words.some(w => text.includes(w))) {
-      const img = document.createElement('img');
-      img.src = '/icons/' + icon + '.png';
-      img.className = 'block-badge';
-      img.alt = icon;
-      el.appendChild(img);
+      const badge = document.createElement('span');
+      badge.className = 'block-badge';
+      badge.textContent = {
+        attack: '⚔',
+        chat: '❝',
+        crystal_ball: '✦',
+        treasure: '◆',
+        location: '⌖',
+        heal: '✚',
+        scroll: '▤',
+        faction: '♜',
+      }[icon] || '•';
+      badge.setAttribute('aria-label', icon);
+      el.appendChild(badge);
       return;
     }
   }
@@ -5360,9 +5365,7 @@ function renderInspirationBlock(name, reason) {
   block.className = 'inspiration-block';
   const title = document.createElement('div');
   title.className = 'inspiration-title';
-  title.innerHTML = `<img src="/icons/focus.png" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-right:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">` +
-    `${name}` +
-    `<img src="/icons/focus.png" style="width:22px;height:22px;vertical-align:middle;opacity:0.85;margin-left:10px;filter:drop-shadow(0 0 6px rgba(220,190,60,0.6))">`;
+  title.textContent = `✦ ${name} ✦`;
   const sub = document.createElement('div');
   sub.className = 'inspiration-sub';
   sub.textContent = 'Inspiration';
@@ -5662,10 +5665,10 @@ const _DEFAULT_CONDITION_CLASS = {
 const DEFAULT_UI_MANIFEST = {
   manifest_version: 1, system: 'dnd5e', label: 'D&D 5e',
   sidebar: [
-    { type: 'bar', label: 'HP', bind: 'hp', icon: '/icons/enemy.png',
+    { type: 'bar', label: 'HP', bind: 'hp', icon: null,
       row_class: 'sb-hp-row', num_class: 'sb-hp-nums', fill_role: 'hp-fill',
       cur: 'current', max: 'max', color: 'hp', temp: 'temp' },
-    { type: 'bar', label: 'XP', bind: 'xp', icon: '/icons/ability.png',
+    { type: 'bar', label: 'XP', bind: 'xp', icon: null,
       row_class: 'sb-xp-row', num_class: 'sb-xp-nums', fill_role: 'xp-fill',
       fill_class: 'sb-xp-bar', cur: 'current', max: 'next', require_cur: true },
     { type: 'stat_lines', lines: [
@@ -6780,9 +6783,9 @@ function updateStats(stats) {
         const el = document.createElement('div');
         el.className = 'sb-turn-item sb-turn-has-icon' + (name === merged.current ? ' sb-turn-current' : '');
         const isFriendly = (name in _playerData) || _isPersistentSidebarActor(entry);
-        const iconSrc = isFriendly ? '/icons/helmet.png' : '/icons/enemy.png';
+        const iconSymbol = isFriendly ? '◆' : '⚔';
         const initiative = entry.initiative == null ? '' : ` · ${entry.initiative}`;
-        el.innerHTML = `<img src="${iconSrc}" class="sb-turn-icon" alt="">${name}${initiative}`;
+        el.textContent = `${iconSymbol} ${name}${initiative}`;
         list.appendChild(el);
       });
     }
