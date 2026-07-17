@@ -24,7 +24,10 @@ import player_inventory  # noqa: E402
 
 
 ActionError = common.ActionError
-OPERATIONS = {"add_item", "remove_item", "move_item", "consume_item", "split_stack", "transfer_item"}
+OPERATIONS = {
+    "add_item", "remove_item", "move_item", "consume_item", "split_stack",
+    "transfer_item", "identify_item",
+}
 ORDINARY_GROUPS = {"carried", "consumables", "currency"}
 TRANSFER_DESTINATION_GROUPS = {"carried", "consumables"}
 SOURCE_GROUPS = ORDINARY_GROUPS | {"nested"}
@@ -54,6 +57,19 @@ SPLIT_FIELDS = EXPECTED_FIELDS | {"split_quantity", "new_item_id"}
 TRANSFER_FIELDS = EXPECTED_FIELDS | {
     "destination_character", "expected_destination_character_id",
     "expected_destination_item_id_absent", "destination",
+}
+IDENTIFY_FIELDS = EXPECTED_FIELDS | {"identified_item"}
+IDENTIFY_IMMUTABLE_FIELDS = {
+    "id": "identified_item_id_changed",
+    "quantity": "identified_item_quantity_changed",
+    "unit": "identified_item_unit_changed",
+    "container_id": "identified_item_location_changed",
+    "weight": "identified_item_weight_changed",
+    "condition": "identified_item_condition_changed",
+    "compatible_slots": "identified_item_equipment_changed",
+    "default_slot": "identified_item_equipment_changed",
+    "requires_attunement": "identified_item_attunement_changed",
+    "attunement_notes": "identified_item_attunement_changed",
 }
 
 
@@ -146,6 +162,8 @@ def normalize_action(value: object) -> dict[str, Any]:
         raise ActionError("invalid_payload", "Inventory action must be a bounded JSON object.")
 
     operation = value.get("operation")
+    if not isinstance(operation, str):
+        raise ActionError("invalid_payload", "Inventory action operation must be a string.")
     operation_fields = {
         "add_item": ADD_FIELDS,
         "remove_item": REMOVE_FIELDS,
@@ -153,10 +171,15 @@ def normalize_action(value: object) -> dict[str, Any]:
         "consume_item": CONSUME_FIELDS,
         "split_stack": SPLIT_FIELDS,
         "transfer_item": TRANSFER_FIELDS,
+        "identify_item": IDENTIFY_FIELDS,
     }.get(operation)
     if operation_fields is None or set(value) != COMMON_FIELDS | operation_fields:
         raise ActionError("invalid_payload", "Inventory action has missing or unknown fields.")
-    if value["schema_version"] != 1:
+    if (
+        not isinstance(value["schema_version"], int)
+        or isinstance(value["schema_version"], bool)
+        or value["schema_version"] != 1
+    ):
         raise ActionError("invalid_payload", "Unsupported inventory action schema.")
 
     request = common.request_id(value["request_id"])
@@ -211,6 +234,13 @@ def normalize_action(value: object) -> dict[str, Any]:
         elif operation == "split_stack":
             action["split_quantity"] = _action_quantity(value["split_quantity"], "split_quantity")
             action["new_item_id"] = _stable_id(value["new_item_id"], "new_item_id")
+        elif operation == "identify_item":
+            try:
+                action["identified_item"] = player_inventory.normalize_item(value["identified_item"])
+            except (TypeError, ValueError) as exc:
+                raise ActionError(
+                    "invalid_identified_item", "identified_item is not a valid complete item record.",
+                ) from exc
         else:
             destination = _normalize_location(value["destination"], "destination", destination=True)
             if destination["group"] not in TRANSFER_DESTINATION_GROUPS:
@@ -324,7 +354,7 @@ def _validate_expected(
 ) -> tuple[list[dict[str, Any]], bool]:
     if action["expected_owner_character_id"] != character_id:
         raise ActionError("stale_owner", "Inventory owner no longer matches expected_owner_character_id.")
-    if action["expected_item"] != item:
+    if not _exact_equal(action["expected_item"], item):
         raise ActionError("stale_item", "Inventory item no longer exactly matches expected_item.")
     actual_location = {"group": group, "container_id": container_id}
     if action["expected_location"] != actual_location:
@@ -400,6 +430,47 @@ def _validate_quantity_eligibility(item: dict[str, Any], group: str) -> int:
     if item.get("notes") == "Unidentified loot":
         raise ActionError("item_unidentified", "Unidentified loot is not supported by quantity actions.")
     return _quantity_source(item)
+
+
+def _exact_equal(before: object, after: object) -> bool:
+    if type(before) is not type(after):
+        return False
+    if isinstance(before, dict):
+        return before.keys() == after.keys() and all(
+            _exact_equal(before[key], after[key]) for key in before
+        )
+    if isinstance(before, list):
+        return len(before) == len(after) and all(
+            _exact_equal(left, right) for left, right in zip(before, after)
+        )
+    return before == after
+
+
+def _field_changed(before: dict[str, Any], after: dict[str, Any], field: str) -> bool:
+    return (field in before) != (field in after) or not _exact_equal(before.get(field), after.get(field))
+
+
+def _validate_identified_item(before: dict[str, Any], value: object) -> tuple[dict[str, Any], list[str]]:
+    try:
+        identified = player_inventory.normalize_item(value)
+    except (TypeError, ValueError) as exc:
+        raise ActionError(
+            "invalid_identified_item", "identified_item is not a valid complete item record.",
+        ) from exc
+    if _exact_equal(identified, before):
+        raise ActionError("identified_item_unchanged", "identified_item must differ from the unidentified item.")
+    for field, code in IDENTIFY_IMMUTABLE_FIELDS.items():
+        if _field_changed(before, identified, field):
+            raise ActionError(code, f"Identification cannot change {field}.")
+    if identified.get("notes") == "Unidentified loot":
+        raise ActionError(
+            "invalid_identified_item", "identified_item must remove the canonical unidentified marker.",
+        )
+    changed_fields = sorted(
+        field for field in set(before) | set(identified)
+        if _field_changed(before, identified, field)
+    )
+    return identified, changed_fields
 
 
 def apply_transition(inventory: dict[str, Any], action: dict[str, Any], character_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -479,6 +550,23 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             before_items = [before_item]
             before_locations = [before_location]
             message = f"Consumed {consumed_quantity} from {item['name']}."
+        elif operation == "identify_item":
+            if attuned:
+                raise ActionError("item_attuned", "Attuned items must be unattuned before identification.")
+            if group == "nested":
+                raise ActionError("item_nested", "Nested legacy records cannot be identified.")
+            if group == "currency":
+                raise ActionError("item_currency", "Currency-group records cannot be identified.")
+            if item.get("notes") != "Unidentified loot":
+                raise ActionError("item_already_identified", "The item is not canonically marked as unidentified.")
+            identified, changed_fields = _validate_identified_item(before_item, action["identified_item"])
+            record_index = records.index(item)
+            records[record_index] = copy.deepcopy(identified)
+            before_items = [before_item]
+            after_items = [copy.deepcopy(identified)]
+            before_locations = [before_location]
+            after_locations = [before_location]
+            message = f"Identified {before_item['name']} as {identified['name']}."
         else:
             if attuned:
                 raise ActionError("item_attuned", "Attuned items must be unattuned before quantity actions.")
@@ -539,6 +627,21 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             "shared_location": {"group": group, "container_id": container_id},
             "split_quantity": action["split_quantity"],
             "new_item_id": action["new_item_id"],
+        })
+    elif operation == "identify_item":
+        quantity_before = _quantity(before_items[0])
+        quantity_after = _quantity(after_items[0])
+        details.update({
+            "preserved_item_id": before_items[0]["id"],
+            "item_before": before_items[0],
+            "item_after": after_items[0],
+            "location_before": before_locations[0],
+            "location_after": after_locations[0],
+            "quantity_before": quantity_before,
+            "quantity_after": quantity_after,
+            "changed_fields": changed_fields,
+            "owner_before": character_id,
+            "owner_after": character_id,
         })
     return validated, details
 
@@ -738,6 +841,13 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                     for field in (
                         "source_before", "source_after", "new_item_after", "shared_location",
                         "split_quantity", "new_item_id",
+                    ):
+                        event[field] = details[field]
+                elif action["operation"] == "identify_item":
+                    for field in (
+                        "preserved_item_id", "item_before", "item_after", "location_before",
+                        "location_after", "quantity_before", "quantity_after", "changed_fields",
+                        "owner_before", "owner_after",
                     ):
                         event[field] = details[field]
                 elif action["operation"] == "transfer_item":
