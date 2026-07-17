@@ -125,6 +125,11 @@ At the start of each turn, run `check_input.py` before processing the player's m
 
 A line wrapped in double brackets — e.g. `[[Narration length for this turn: aim for ~250 words…]]` — is **not** a player action; it is a directive from the display's Narration slider. Treat it as a hard length budget for **this turn's** narration: write to roughly that word count, trimming description and pacing to fit, and never pad to reach it. The remaining `[Char]: …` lines are the actual player actions. (If the only thing returned is the `[[…]]` directive with no action lines, treat it as no player input.)
 
+**Persistent equipment actions:**
+Player chat remains free text. Invoke `scripts/equipment_action.py` only when the player clearly manages their persistent loadout with intent such as `equip`, `unequip`, `swap`, `replace`, `wear`, `remove`, `stow`, `put away`, `set as main hand`, `set as off hand`, or `set as active ranged weapon`. Translate that intent into the command's strict JSON action; normalize `swap` to `replace`. Pass stable item IDs when known. If the item, instance, destination, or slot is ambiguous, ask for clarification instead of guessing.
+
+Ordinary combat narration does **not** change persistent equipment. Never invoke the equipment command merely because the player says `draw`, `fire`, `attack`, `aim`, `hold`, enters a `fighting stance`, or says they `use my off-hand weapon`. Do not add a keyword-only parser. Equip and attune are separate: equipment actions never add, remove, infer, or enforce attunement. Return the command's human-readable confirmation or controlled error through the normal narration channel.
+
 **Autorun mode** (`autorun: true` in `state.md → ## Session Flags`):
 
 When autorun is active, Claude drives the turn loop — no GM Enter required. After completing each response, run this blocking wait as the very last Bash call:

@@ -9,6 +9,7 @@ Endpoints:
     POST /chunk              → receives text chunk from wrapper.py
     POST /stats              → receives character/combat stat updates (merged, persisted)
     POST /quests/refresh     → rebuilds the active campaign's local quest snapshot
+    POST /inventory/refresh  → reprojects active campaign inventory without mutation
     GET  /stream             → SSE stream to browser (text + scene + stats events)
     GET  /ping               → health check
     POST /clear              → wipe text log and broadcast clear event
@@ -1632,6 +1633,27 @@ def refresh_quests():
         "quests_meta": _quest_meta(snapshot),
     }
     _broadcast({"stats": snapshot_stats})
+    return "", 204
+
+
+@app.route("/inventory/refresh", methods=["POST"])
+def refresh_inventory():
+    """Broadcast a fresh read-only inventory projection for the active campaign."""
+    if not _token_ok():
+        return "Forbidden", 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"campaign"}:
+        return "Inventory refresh accepts only campaign", 400
+    requested = str(data.get("campaign") or "").strip()
+    active = _active_campaign()
+    if not active:
+        return "No active campaign", 409
+    if requested != active:
+        return "Campaign mismatch", 409
+    with _stats_lock:
+        players = list(_current_stats.get("players", []))
+    projected = _stats_for_display({"players": players}, active)
+    _broadcast({"stats": {"players": projected.get("players", [])}})
     return "", 204
 
 

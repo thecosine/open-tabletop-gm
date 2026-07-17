@@ -302,6 +302,32 @@ If output is present, use it as the player action for this turn. If both queued 
 
 ---
 
+## Equipment Actions — `scripts/equipment_action.py`
+
+Trusted GM-only command for explicit persistent loadout changes. It accepts one strict JSON object on stdin; player chat is never sent directly to it and there is no keyword parser. Supported operations are `equip`, `unequip`, `replace`, and `set_loadout`; translate player wording `swap` to `replace` before calling it.
+
+```bash
+python3 <skill-base>/scripts/equipment_action.py <<'GMEND'
+{
+  "schema_version": 1,
+  "request_id": "equipment-20260716-abc123",
+  "campaign": "my-campaign",
+  "character": "Aldric",
+  "operation": "equip",
+  "item_selector": {"item_id": "silvered-longsword"},
+  "target_slots": ["main_hand"],
+  "expected_occupants": [],
+  "destination": {"type": "carried"},
+  "expected_revision": 0,
+  "source_text": "Equip the silvered longsword in my main hand."
+}
+GMEND
+```
+
+Invoke it only for clear intent such as equip, unequip, swap/replace, wear/remove, stow/put away, or set-as-slot. Do not invoke it for draw, fire, attack, aim, hold, fighting stance, or ordinary weapon-use narration. Ask for clarification rather than guessing an item, instance, destination, or slot. The command preserves attunement unchanged and prints a structured result whose `messages` or `message` should be returned through normal narration.
+
+---
+
 ## Display Companion Setup
 
 ```bash
