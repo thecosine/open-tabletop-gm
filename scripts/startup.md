@@ -82,8 +82,6 @@ python3 $SKILL/display/push_stats.py --player NAME --concentrate "Bless"
 python3 $SKILL/display/push_stats.py --player NAME --concentrate ""  # clear
 python3 $SKILL/display/push_stats.py --player NAME --slot-use 3
 python3 $SKILL/display/push_stats.py --player NAME --slot-restore 3
-python3 $SKILL/display/push_stats.py --player NAME --inventory-add "Iron key"
-python3 $SKILL/display/push_stats.py --player NAME --inventory-remove "Potion"
 python3 $SKILL/display/push_stats.py --factions '[...]'   # full replace
 python3 $SKILL/display/push_stats.py --quests '[...]'     # full replace; [] to clear
 python3 $SKILL/display/push_stats.py --refresh-quests      # state.md → local cache → SSE
@@ -158,6 +156,12 @@ python3 <skill-base>/display/check_input.py
 ```
 
 If output is non-empty, use it as the player action for this turn. Merge with any terminal message if both exist.
+
+## Persistent Inventory Intent
+
+Only the trusted GM may translate settled persistent ownership or location intent into a strict JSON call to `scripts/inventory_action.py`. Initial operations are `add_item`, whole-record `remove_item`, and whole-record `move_item`. Valid intent includes add to inventory, acquire into inventory, take into inventory, discard, destroy, remove from inventory, move into container, and take out of container. Resolve ownership, exact item, quantity, destination, and persistence intent first; ask for clarification rather than guessing.
+
+Do not call the inventory command for pick up, hold, hand temporarily, inspect, examine, count, search, use, drink, fire, or throw. Ambiguous phrases including take it, give her the item, put it away, use a potion, get rid of it, and move the arrows require clarification. Inventory actions do not equip or change attunement; equipment and attunement actions do not add or remove ownership.
 
 ## Persistent Equipment Intent
 

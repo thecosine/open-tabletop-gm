@@ -135,6 +135,11 @@ Invoke `scripts/attunement_action.py` only for explicit persistent intent using 
 
 "Which items am I attuned to?" is read-only. Answer from the validated projected inventory without invoking an action: an explicit empty list means "You are not currently attuned to any items"; missing attunement data means "Your current attunement state is not recorded"; otherwise enumerate canonical item names. Never create an event or change revision for this question.
 
+**Persistent inventory actions:**
+Invoke `scripts/inventory_action.py` only after the GM has adjudicated explicit persistent ownership and location intent. The initial operations are `add_item`, whole-record `remove_item`, and whole-record `move_item`. Valid intent includes `add to inventory`, `acquire into inventory`, `take into inventory`, `discard`, `destroy`, `remove from inventory`, `move into container`, and `take out of container`. Require the exact item, complete current record, ownership, quantity when adding, and explicit destination group and container before translating the intent into strict JSON.
+
+Ordinary narration does **not** mutate inventory. Do not invoke the command for `pick up`, `hold`, temporary `hand`, `inspect`, `examine`, `count`, `search`, `use`, `drink`, `fire`, or `throw`. Ask for clarification for phrases such as `take it`, `give her the item`, `put it away`, `use a potion`, `get rid of it`, or `move the arrows`. Equipment, attunement, and persistent inventory actions remain separate; none implies either of the others.
+
 **Autorun mode** (`autorun: true` in `state.md → ## Session Flags`):
 
 When autorun is active, Claude drives the turn loop — no GM Enter required. After completing each response, run this blocking wait as the very last Bash call:
@@ -266,8 +271,6 @@ GMEND
 | `--stat-condition-add` | `"NAME:CONDITION"` | Status effect applied |
 | `--stat-condition-remove` | `"NAME:CONDITION"` | Status effect ends |
 | `--stat-concentrate` | `"NAME:ABILITY"` | Sustained ability starts (empty = clear) |
-| `--stat-inventory-add` | `"NAME:ITEM"` | Item gained |
-| `--stat-inventory-remove` | `"NAME:ITEM"` | Item spent or given away |
 | `--effect-start` | `"NAME:ABILITY:DURATION"` | Timed effect — `10r` / `60m` / `8h` / `indef`; append `:conc` if sustained |
 | `--effect-end` | `"NAME:ABILITY"` | Effect ends (broken, dispelled, dropped) |
 
