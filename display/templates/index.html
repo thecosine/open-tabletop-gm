@@ -1022,7 +1022,7 @@
     scrollbar-width: thin;
     scrollbar-color: rgba(180,140,60,0.32) transparent;
     color: rgba(238,230,210,0.92);
-    background: radial-gradient(circle at 12% 0%, rgba(180,140,60,0.13), transparent 36%), rgba(8,7,6,0.9);
+    background: radial-gradient(circle at 12% 0%, rgba(180,140,60,0.13), transparent 36%), #0b0907;
     border: 1px solid rgba(200,160,75,0.34);
     border-radius: 5px;
     box-shadow: 0 14px 36px rgba(0,0,0,0.42), inset 0 1px rgba(255,230,160,0.04);
@@ -1076,6 +1076,8 @@
     text-transform: uppercase;
   }
   #dashboard-identity { color: rgba(225,228,232,0.74); font-size: 13px; line-height: 1.5; }
+  .identity-primary { color: rgba(235,228,207,0.9); }
+  .identity-public { color: rgba(222,207,170,0.8); font-size: 10px; }
   #dashboard-full-sheet {
     align-self: flex-start;
     flex: 0 0 auto;
@@ -1103,7 +1105,7 @@
   .dashboard-overview-label {
     display: block;
     margin-bottom: 3px;
-    color: rgba(200,165,80,0.65);
+    color: rgba(220,183,91,0.86);
     font-family: 'Cinzel', serif;
     font-size: 8px;
     letter-spacing: 1.5px;
@@ -1136,13 +1138,33 @@
   .dashboard-overview-card {
     min-width: 0;
     padding: 12px;
-    background: rgba(255,255,255,0.025);
+    background: #11100d;
     border-left: 2px solid rgba(180,140,60,0.3);
   }
-  .dashboard-overview-value { color: rgba(230,225,210,0.84); font-size: 12px; line-height: 1.65; }
+  .dashboard-overview-card.wide { grid-column: 1 / -1; }
+  .dashboard-overview-value { color: rgba(242,238,225,0.94); font-size: 12px; line-height: 1.65; }
+  .dashboard-ability-grid { display: grid; grid-template-columns: repeat(6, minmax(54px, 1fr)); gap: 7px; }
+  .dashboard-ability {
+    position: relative;
+    padding: 8px 5px;
+    text-align: center;
+    background: #0b0a08;
+    border: 1px solid rgba(195,154,66,0.34);
+  }
+  .dashboard-ability.save-proficient { border-color: rgba(211,174,83,0.55); }
+  .dashboard-ability-name { color: rgba(230,192,98,0.92); font: 9px 'Cinzel', serif; letter-spacing: 1px; }
+  .dashboard-ability-score { color: rgba(247,245,238,0.96); font: 18px 'Cinzel', serif; }
+  .dashboard-ability-mod { color: rgba(238,233,218,0.88); font-size: 10px; }
+  .dashboard-save-mark { margin-top: 3px; color: #e0bd63; font-size: 8px; text-transform: uppercase; }
+  .dashboard-detail-group + .dashboard-detail-group { margin-top: 8px; }
+  .dashboard-detail-title { color: rgba(226,188,94,0.88); font-size: 9px; text-transform: uppercase; letter-spacing: 0.7px; }
+  .dashboard-detail-row { display: flex; justify-content: space-between; gap: 10px; color: rgba(244,240,228,0.94); }
+  .dashboard-rank { color: #e0bd63; font-size: 9px; text-transform: uppercase; }
+  .dashboard-rank.expertise { color: #d2a5ef; }
   .dashboard-condition-list { display: flex; flex-wrap: wrap; gap: 6px; }
   .dashboard-condition-list .sb-condition-pill { font-size: 10px; }
-  .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: rgba(244,240,228,0.94); }
+  .dashboard-slot-row strong { color: #f1d27b; }
   .dashboard-people-list { display: grid; gap: 10px; }
   .dashboard-person-card {
     display: grid;
@@ -1193,6 +1215,7 @@
     .dashboard-portrait.sb-player-portrait { width: 84px; height: 84px; flex-basis: 84px; }
     #dashboard-full-sheet { order: 3; }
     .dashboard-overview-grid { grid-template-columns: 1fr; }
+    .dashboard-ability-grid { grid-template-columns: repeat(3, minmax(54px, 1fr)); }
     .dashboard-person-card { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
     .dashboard-person-portrait-slot,
     .dashboard-person-portrait { width: 52px; height: 52px; }
@@ -6233,24 +6256,27 @@ function _buildPlayerCard(p, solo) {
   nameEl.textContent = p.name || '—';
   identityCopy.appendChild(nameEl);
 
-  // Identity: Race · Class Level
+  // Internal identity is primary; a distinct public identity remains visible.
   const identEl = document.createElement('div');
   identEl.className = 'sb-identity';
-  const parts = [];
-  // Line 1: Race · BaseClass Level   Line 2: Subclass (Background)
-  // p.class may be "Rogue/Thief (Criminal)" — split on "/" if present
-  let baseClass = p.class || '';
-  let subLine = p.background || '';
-  if (baseClass.includes('/')) {
-    const slashIdx = baseClass.indexOf('/');
-    subLine = baseClass.slice(slashIdx + 1).trim() + (p.background ? ' · ' + p.background : '');
-    baseClass = baseClass.slice(0, slashIdx).trim();
+  const primary = document.createElement('div');
+  primary.className = 'identity-primary';
+  primary.textContent = [_trueIdentityClass(p), p.level ? `Level ${p.level}` : '', p.race]
+    .filter(Boolean).join(' · ') || '—';
+  identEl.appendChild(primary);
+  const publicClass = _publicIdentityClass(p);
+  if (publicClass && publicClass !== _trueIdentityClass(p)) {
+    const publicLine = document.createElement('div');
+    publicLine.className = 'identity-public';
+    publicLine.textContent = `Public identity: ${publicClass}`;
+    identEl.appendChild(publicLine);
   }
-  const line1 = [];
-  if (p.race)    line1.push(p.race);
-  if (baseClass) line1.push(baseClass + (p.level ? ' ' + p.level : ''));
-  identEl.innerHTML = (line1.join(' · ') || '—') +
-    (subLine ? `<br><span style="opacity:0.7">${subLine}</span>` : '');
+  if (p.background) {
+    const background = document.createElement('div');
+    background.className = 'identity-public';
+    background.textContent = p.background;
+    identEl.appendChild(background);
+  }
   identityCopy.appendChild(identEl);
   identityHeader.appendChild(identityCopy);
   card.appendChild(identityHeader);
@@ -6302,9 +6328,50 @@ let _dashboardTab = 'Overview';
 function _dashboardIdentity(p) {
   const parts = [];
   if (p.race) parts.push(p.race);
-  if (p.class) parts.push(p.class + (p.level ? ' ' + p.level : ''));
+  if (_trueIdentityClass(p)) parts.push(_trueIdentityClass(p));
+  if (p.level) parts.push(`Level ${p.level}`);
   if (p.background) parts.push(p.background);
   return parts.join('  ·  ');
+}
+
+function _trueIdentityClass(p) {
+  return p.overview && p.overview.true_identity && p.overview.true_identity.class
+    ? String(p.overview.true_identity.class)
+    : String(p.class || '');
+}
+
+function _publicIdentityClass(p) {
+  return p.overview && p.overview.public_identity && p.overview.public_identity.class
+    ? String(p.overview.public_identity.class)
+    : '';
+}
+
+function _formatSigned(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number') return value >= 0 ? `+${value}` : String(value);
+  const text = String(value);
+  return /^[-+]/.test(text) ? text : text;
+}
+
+function _formatSpeed(value) {
+  if (value == null || value === '') return '';
+  const text = String(value);
+  return /[A-Za-z]/.test(text) ? text : `${text} ft`;
+}
+
+function _renderDashboardIdentity(container, p) {
+  container.replaceChildren();
+  const primary = document.createElement('div');
+  primary.className = 'identity-primary';
+  primary.textContent = _dashboardIdentity(p) || 'Character details';
+  container.appendChild(primary);
+  const publicClass = _publicIdentityClass(p);
+  if (publicClass && publicClass !== _trueIdentityClass(p)) {
+    const publicLine = document.createElement('div');
+    publicLine.className = 'identity-public';
+    publicLine.textContent = `Public identity: ${publicClass}`;
+    container.appendChild(publicLine);
+  }
 }
 
 function _appendDashboardStat(container, label, value) {
@@ -6333,9 +6400,136 @@ function _dashboardOverviewCard(label) {
   return {card, body};
 }
 
+function _appendDetailGroup(body, label, values) {
+  const present = Array.isArray(values) ? values.filter(Boolean) : [];
+  if (!present.length) return;
+  const group = document.createElement('div');
+  group.className = 'dashboard-detail-group';
+  const title = document.createElement('div');
+  title.className = 'dashboard-detail-title';
+  title.textContent = label;
+  const text = document.createElement('div');
+  text.textContent = present.join(' · ');
+  group.append(title, text);
+  body.appendChild(group);
+}
+
+function _renderOverviewAbilities(grid, p, overview) {
+  const manifest = _gmManifest();
+  const gridDef = manifest.sheet && manifest.sheet.stat_grid;
+  if (!gridDef || !Array.isArray(gridDef.stats)) return;
+  const values = _bind(p, gridDef.bind || 'ability_scores');
+  if (!values || typeof values !== 'object') return;
+  const saves = new Map((Array.isArray(overview.saving_throws) ? overview.saving_throws : [])
+    .filter(save => save && save.proficient)
+    .map(save => [String(save.ability || '').toLowerCase(), save]));
+  const abilityCard = _dashboardOverviewCard(gridDef.label || 'Attributes');
+  abilityCard.card.classList.add('wide');
+  const abilityGrid = document.createElement('div');
+  abilityGrid.className = 'dashboard-ability-grid';
+  gridDef.stats.forEach(definition => {
+    const raw = values[definition.key];
+    if (raw == null) return;
+    const score = raw && typeof raw === 'object' ? raw.score : raw;
+    const modifier = raw && typeof raw === 'object' ? raw.mod : null;
+    const save = saves.get(String(definition.key).toLowerCase());
+    const cell = document.createElement('div');
+    cell.className = `dashboard-ability${save ? ' save-proficient' : ''}`;
+    const name = document.createElement('div');
+    name.className = 'dashboard-ability-name';
+    name.textContent = definition.label || String(definition.key).toUpperCase();
+    const scoreEl = document.createElement('div');
+    scoreEl.className = 'dashboard-ability-score';
+    scoreEl.textContent = score ?? '—';
+    cell.append(name, scoreEl);
+    if (modifier != null) {
+      const mod = document.createElement('div');
+      mod.className = 'dashboard-ability-mod';
+      mod.textContent = _formatSigned(modifier);
+      cell.appendChild(mod);
+    }
+    if (save) {
+      const mark = document.createElement('div');
+      mark.className = 'dashboard-save-mark';
+      mark.textContent = `Save ${_formatSigned(save.bonus)}`;
+      cell.appendChild(mark);
+    }
+    abilityGrid.appendChild(cell);
+  });
+  if (abilityGrid.childElementCount) {
+    abilityCard.body.appendChild(abilityGrid);
+    grid.appendChild(abilityCard.card);
+  }
+}
+
+function _renderOverviewSkills(grid, overview) {
+  const skills = overview.skills && typeof overview.skills === 'object' ? overview.skills : {};
+  const entries = Array.isArray(skills.entries) ? skills.entries : [];
+  const bonuses = Array.isArray(skills.bonuses) ? skills.bonuses : [];
+  if (!skills.all_proficient && !entries.length && !bonuses.length && overview.passive_perception == null) return;
+  const card = _dashboardOverviewCard('Skills');
+  if (skills.all_proficient) _appendDetailGroup(card.body, 'Proficiency', ['All skills']);
+  entries.forEach(entry => {
+    if (!entry || !entry.name || !['proficient', 'expertise'].includes(entry.rank)) return;
+    const row = document.createElement('div');
+    row.className = 'dashboard-detail-row';
+    const name = document.createElement('span');
+    name.textContent = `${entry.name}${entry.bonus != null ? ` ${_formatSigned(entry.bonus)}` : ''}`;
+    const rank = document.createElement('span');
+    rank.className = `dashboard-rank ${entry.rank}`;
+    rank.textContent = entry.rank;
+    row.append(name, rank);
+    card.body.appendChild(row);
+  });
+  _appendDetailGroup(card.body, 'Explicit bonuses', bonuses.map(item =>
+    item && item.name && item.bonus != null ? `${item.name} ${_formatSigned(item.bonus)}` : ''));
+  if (overview.passive_perception != null) {
+    _appendDetailGroup(card.body, 'Passive Perception', [String(overview.passive_perception)]);
+  }
+  grid.appendChild(card.card);
+}
+
+function _renderOverviewDefenses(grid, overview) {
+  const defenses = overview.defenses && typeof overview.defenses === 'object' ? overview.defenses : {};
+  const groups = [
+    ['Resistances', defenses.resistances],
+    ['Immunities', defenses.immunities],
+    ['Vulnerabilities', defenses.vulnerabilities],
+    ['Condition immunities', defenses.condition_immunities],
+  ].filter(([, values]) => Array.isArray(values) && values.length);
+  if (!groups.length) return;
+  const card = _dashboardOverviewCard('Defenses');
+  groups.forEach(([label, values]) => _appendDetailGroup(card.body, label, values.map(String)));
+  grid.appendChild(card.card);
+}
+
+function _renderOverviewProficiencies(grid, overview) {
+  const proficiencies = overview.proficiencies && typeof overview.proficiencies === 'object'
+    ? overview.proficiencies : {};
+  const groups = [
+    ['Armor', proficiencies.armor], ['Weapons', proficiencies.weapons],
+    ['Tools', proficiencies.tools], ['Languages', proficiencies.languages],
+  ].filter(([, values]) => Array.isArray(values) && values.length);
+  if (!groups.length) return;
+  const card = _dashboardOverviewCard('Proficiencies');
+  groups.forEach(([label, values]) => _appendDetailGroup(card.body, label, values.map(value => {
+    if (value && typeof value === 'object') {
+      return `${value.name || ''}${value.rank === 'expertise' ? ' (expertise)' : ''}`;
+    }
+    return String(value);
+  })));
+  grid.appendChild(card.card);
+}
+
 function _renderDashboardOverview(panel, p) {
   const grid = document.createElement('div');
   grid.className = 'dashboard-overview-grid';
+  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
+
+  _renderOverviewAbilities(grid, p, overview);
+  _renderOverviewSkills(grid, overview);
+  _renderOverviewDefenses(grid, overview);
+  _renderOverviewProficiencies(grid, overview);
 
   const status = _dashboardOverviewCard('Status');
   const conditions = Array.isArray(p.conditions) ? p.conditions : [];
@@ -6382,15 +6576,23 @@ function _renderDashboardOverview(panel, p) {
 
   const details = [];
   if (p.hp && p.hp.temp) details.push(`Temporary HP: ${p.hp.temp}`);
-  if (p.initiative != null) details.push(`Initiative: ${p.initiative}`);
-  if (p.speed != null) details.push(`Speed: ${p.speed} ft`);
   if (p.hit_dice && p.hit_dice.die) details.push(`Hit Dice: ${p.hit_dice.remaining ?? '?'}/${p.hit_dice.max ?? '?'} ${p.hit_dice.die}`);
-  if (details.length) {
-    const atGlance = _dashboardOverviewCard('At a glance');
+  const senses = Array.isArray(overview.senses) ? overview.senses.filter(item => item && item.name) : [];
+  const resources = Array.isArray(overview.resources) ? overview.resources.filter(item => item && item.name) : [];
+  if (details.length || senses.length || resources.length) {
+    const atGlance = _dashboardOverviewCard('Reference');
     details.forEach((detail, index) => {
       if (index) atGlance.body.appendChild(document.createElement('br'));
       atGlance.body.appendChild(document.createTextNode(detail));
     });
+    _appendDetailGroup(atGlance.body, 'Senses', senses.map(item => item.name));
+    _appendDetailGroup(atGlance.body, 'Resources', resources.map(resource => {
+      const details = [];
+      if (resource.die) details.push(resource.die);
+      if (resource.max != null) details.push(`${resource.max} maximum`);
+      if (resource.recharge) details.push(resource.recharge);
+      return `${resource.name}${details.length ? `: ${details.join(', ')}` : ''}`;
+    }));
     grid.appendChild(atGlance.card);
   }
 
@@ -6517,7 +6719,7 @@ function _renderSelectedDashboard() {
   overlay.hidden = false;
   document.getElementById('dashboard-portrait-slot').replaceChildren(_makePlayerPortrait(p, 'dashboard-portrait'));
   document.getElementById('dashboard-name').textContent = p.name || '—';
-  document.getElementById('dashboard-identity').textContent = _dashboardIdentity(p) || 'Character details';
+  _renderDashboardIdentity(document.getElementById('dashboard-identity'), p);
   const stats = document.getElementById('dashboard-headline-stats');
   stats.replaceChildren();
   if (p.hp && (p.hp.current != null || p.hp.max != null)) {
@@ -6527,6 +6729,11 @@ function _renderSelectedDashboard() {
   if (p.xp && p.xp.current != null) {
     _appendDashboardStat(stats, 'XP', p.xp.next != null ? `${p.xp.current} / ${p.xp.next}` : String(p.xp.current));
   }
+  _appendDashboardStat(stats, 'Initiative', p.initiative);
+  _appendDashboardStat(stats, 'Speed', _formatSpeed(p.speed));
+  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
+  _appendDashboardStat(stats, 'Proficiency', overview.proficiency_bonus != null
+    ? _formatSigned(overview.proficiency_bonus) : null);
   document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
     card.classList.toggle('is-selected', card.dataset.playerName === _dashboardPlayerName);
   });
@@ -7269,7 +7476,9 @@ function updateStats(stats) {
       if (!p.name) return;
       const existing = _playerData[p.name] || {};
       for (const [k, v] of Object.entries(p)) {
-        if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof existing[k] === 'object') {
+        if (k === 'overview') {
+          existing[k] = v;
+        } else if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof existing[k] === 'object') {
           existing[k] = Object.assign({}, existing[k], v);
         } else {
           existing[k] = v;

@@ -55,7 +55,8 @@ class PortraitMergeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.live_stats_path = DISPLAY / "stats.json"
-        cls.live_stats_before = cls.live_stats_path.read_bytes()
+        cls.live_stats_existed = cls.live_stats_path.exists()
+        cls.live_stats_before = cls.live_stats_path.read_bytes() if cls.live_stats_existed else None
         cls.tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.tmp.cleanup)
         cls.mod = _load_module(DISPLAY / "gm-display-app.py", "portrait_display_app")
@@ -77,7 +78,10 @@ class PortraitMergeTests(unittest.TestCase):
         }
 
     def tearDown(self):
-        self.assertEqual(self.live_stats_path.read_bytes(), self.live_stats_before)
+        if self.live_stats_existed:
+            self.assertEqual(self.live_stats_path.read_bytes(), self.live_stats_before)
+        else:
+            self.assertFalse(self.live_stats_path.exists())
 
     def _post(self, body):
         return self.client.post("/stats", data=json.dumps(body), content_type="application/json")
