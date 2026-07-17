@@ -24,10 +24,11 @@ import player_inventory  # noqa: E402
 
 
 ActionError = common.ActionError
-OPERATIONS = {"add_item", "remove_item", "move_item"}
+OPERATIONS = {"add_item", "remove_item", "move_item", "consume_item", "split_stack"}
 ORDINARY_GROUPS = {"carried", "consumables", "currency"}
 SOURCE_GROUPS = ORDINARY_GROUPS | {"nested"}
 DISPOSITIONS = {"discarded", "destroyed", "lost", "ownership-ended"}
+MAX_QUANTITY = 2147483647
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SLOTS = {
     "armor", "main_hand", "off_hand", "active_ranged",
@@ -47,6 +48,8 @@ EXPECTED_FIELDS = {
 }
 REMOVE_FIELDS = EXPECTED_FIELDS | {"disposition"}
 MOVE_FIELDS = EXPECTED_FIELDS | {"destination"}
+CONSUME_FIELDS = EXPECTED_FIELDS | {"quantity"}
+SPLIT_FIELDS = EXPECTED_FIELDS | {"split_quantity", "new_item_id"}
 
 
 def _stable_id(value: object, field: str) -> str:
@@ -121,6 +124,14 @@ def _normalize_expected_fields(value: dict[str, Any], action: dict[str, Any]) ->
     })
 
 
+def _action_quantity(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ActionError("invalid_quantity", f"{field} must be a positive integer.")
+    if value > MAX_QUANTITY:
+        raise ActionError("quantity_too_large", f"{field} exceeds the maximum supported quantity.")
+    return value
+
+
 def normalize_action(value: object) -> dict[str, Any]:
     try:
         serialized_size = len(json.dumps(value, ensure_ascii=False))
@@ -134,6 +145,8 @@ def normalize_action(value: object) -> dict[str, Any]:
         "add_item": ADD_FIELDS,
         "remove_item": REMOVE_FIELDS,
         "move_item": MOVE_FIELDS,
+        "consume_item": CONSUME_FIELDS,
+        "split_stack": SPLIT_FIELDS,
     }.get(operation)
     if operation_fields is None or set(value) != COMMON_FIELDS | operation_fields:
         raise ActionError("invalid_payload", "Inventory action has missing or unknown fields.")
@@ -185,8 +198,13 @@ def normalize_action(value: object) -> dict[str, Any]:
             if disposition not in DISPOSITIONS:
                 raise ActionError("invalid_payload", "remove_item disposition is unsupported.")
             action["disposition"] = disposition
-        else:
+        elif operation == "move_item":
             action["destination"] = _normalize_location(value["destination"], "destination", destination=True)
+        elif operation == "consume_item":
+            action["quantity"] = _action_quantity(value["quantity"], "quantity")
+        else:
+            action["split_quantity"] = _action_quantity(value["split_quantity"], "split_quantity")
+            action["new_item_id"] = _stable_id(value["new_item_id"], "new_item_id")
     return action
 
 
@@ -293,6 +311,29 @@ def _quantity(item: dict[str, Any]) -> int | float | None:
     return item.get("quantity")
 
 
+def _quantity_source(item: dict[str, Any]) -> int:
+    if "quantity" not in item:
+        raise ActionError("item_unquantified", "Quantity actions require an explicitly quantified item.")
+    quantity = item["quantity"]
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+        raise ActionError("invalid_quantity", "The current item quantity must be a positive integer.")
+    if quantity > MAX_QUANTITY:
+        raise ActionError("quantity_too_large", "The current item quantity exceeds the supported maximum.")
+    return quantity
+
+
+def _validate_quantity_eligibility(item: dict[str, Any], group: str) -> int:
+    if group == "currency":
+        raise ActionError("item_currency", "Currency records are not supported by quantity actions.")
+    if group == "nested":
+        raise ActionError("item_nested", "Nested legacy records must be moved before quantity actions.")
+    if "weight" in item:
+        raise ActionError("item_weighted", "Weight-bearing records are not supported by quantity actions.")
+    if item.get("notes") == "Unidentified loot":
+        raise ActionError("item_unidentified", "Unidentified loot is not supported by quantity actions.")
+    return _quantity_source(item)
+
+
 def apply_transition(inventory: dict[str, Any], action: dict[str, Any], character_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     updated = copy.deepcopy(inventory)
     operation = action["operation"]
@@ -334,7 +375,7 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             before_locations = [before_location]
             after_locations = []
             message = f"Removed {item['name']} from {action['character']}'s inventory ({action['disposition']})."
-        else:
+        elif operation == "move_item":
             destination = action["destination"]
             _validate_destination(updated, destination)
             if group == destination["group"] and container_id == destination["container_id"]:
@@ -351,6 +392,47 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             after_locations = [_location(item["id"], destination["group"], destination["container_id"])]
             target = destination["container_id"] or destination["group"]
             message = f"Moved {item['name']} to {target}."
+        elif operation == "consume_item":
+            if attuned:
+                raise ActionError("item_attuned", "Attuned items must be unattuned before quantity actions.")
+            current_quantity = _validate_quantity_eligibility(item, group)
+            consumed_quantity = action["quantity"]
+            if consumed_quantity > current_quantity:
+                raise ActionError("insufficient_quantity", "The item stack does not contain that quantity.")
+            remaining = current_quantity - consumed_quantity
+            if remaining == 0:
+                records.remove(item)
+                after_items = []
+                after_locations = []
+            else:
+                item["quantity"] = remaining
+                after_items = [copy.deepcopy(item)]
+                after_locations = [before_location]
+            before_items = [before_item]
+            before_locations = [before_location]
+            message = f"Consumed {consumed_quantity} from {item['name']}."
+        else:
+            if attuned:
+                raise ActionError("item_attuned", "Attuned items must be unattuned before quantity actions.")
+            current_quantity = _validate_quantity_eligibility(item, group)
+            split_quantity = action["split_quantity"]
+            if current_quantity < 2 or split_quantity >= current_quantity:
+                raise ActionError("insufficient_quantity", "split_quantity must be less than the source quantity.")
+            if action["new_item_id"] in _all_ids(updated):
+                raise ActionError("item_id_collision", "new_item_id already exists in this character's inventory.")
+            new_item = copy.deepcopy(item)
+            item["quantity"] = current_quantity - split_quantity
+            new_item["id"] = action["new_item_id"]
+            new_item["quantity"] = split_quantity
+            records.append(new_item)
+            before_items = [before_item]
+            after_items = [copy.deepcopy(item), copy.deepcopy(new_item)]
+            before_locations = [before_location]
+            after_locations = [
+                before_location,
+                _location(new_item["id"], group, container_id),
+            ]
+            message = f"Split {split_quantity} from {item['name']} into {new_item['id']}."
 
     try:
         validated = player_inventory.normalize_inventory(updated)
@@ -360,6 +442,8 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
     item_ids = {item["id"] for item in before_items + after_items}
     quantities_before = {item["id"]: _quantity(item) for item in before_items}
     quantities_after = {item["id"]: _quantity(item) for item in after_items}
+    if operation == "consume_item" and not after_items:
+        quantities_after[before_items[0]["id"]] = 0
     equipment_before = {item_id: copy.deepcopy(refs if item_id in item_ids else []) for item_id in item_ids}
     attunement_before = {item_id: attuned for item_id in item_ids}
     details = {
@@ -377,6 +461,17 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
     }
     if operation == "remove_item":
         details["disposition"] = action["disposition"]
+    elif operation == "consume_item":
+        details["consumed_quantity"] = action["quantity"]
+    elif operation == "split_stack":
+        details.update({
+            "source_before": before_items[0],
+            "source_after": after_items[0],
+            "new_item_after": after_items[1],
+            "shared_location": {"group": group, "container_id": container_id},
+            "split_quantity": action["split_quantity"],
+            "new_item_id": action["new_item_id"],
+        })
     return validated, details
 
 
@@ -453,6 +548,14 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                 }
                 if "disposition" in details:
                     event["disposition"] = details["disposition"]
+                if "consumed_quantity" in details:
+                    event["consumed_quantity"] = details["consumed_quantity"]
+                if action["operation"] == "split_stack":
+                    for field in (
+                        "source_before", "source_after", "new_item_after", "shared_location",
+                        "split_quantity", "new_item_id",
+                    ):
+                        event[field] = details[field]
                 state["events"].append(event)
                 normalized_state = player_inventory.normalize_inventory_state(state, action["campaign"])
                 common.atomic_json(common.state_path(directory), normalized_state)
