@@ -401,18 +401,19 @@ class OverviewFrontendContractTests(unittest.TestCase):
         )[0]
         self.assertIn("if (hasPlayerSnapshot || hasPeopleSnapshot) _renderSelectedDashboard()", update)
         for token in (
-            "function _renderDashboardPeople", "dashboard content is coming in a later phase",
+            "function _renderDashboardInventory", "function _renderDashboardPeople",
+            "dashboard content is coming in a later phase",
             "focus({preventScroll: true})", "event.stopPropagation()", "openLegacySheet(_dashboardPlayerName)",
         ):
             self.assertIn(token, self.source)
-        for tab in ("Inventory", "Spells", "Features", "Notes"):
+        for tab in ("Spells", "Features", "Notes"):
             self.assertNotIn(f"function _renderDashboard{tab}", self.source)
 
     def test_overview_snapshot_replaces_instead_of_merging_stale_fields(self):
         update = self.source.split("function updateStats(stats)", 1)[1].split(
             "// Faction panel", 1
         )[0]
-        self.assertIn("if (k === 'overview')", update)
+        self.assertIn("if (k === 'overview' || k === 'inventory')", update)
         self.assertIn("existing[k] = v", update)
 
     def test_projected_strings_use_safe_dom_text(self):

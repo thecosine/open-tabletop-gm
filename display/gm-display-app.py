@@ -81,6 +81,7 @@ from people_cache import (
 )
 from portrait_paths import normalize_player_records as _normalize_player_records
 from player_overview import project_players as _project_overview_players
+from player_inventory import project_players as _project_inventory_players
 
 # TTS module — degrades silently if Gemini API key not configured.
 # See docs/SKILL-tts.md for setup.
@@ -1079,7 +1080,11 @@ def _stats_for_display(stats: dict, campaign: str = "") -> dict:
     if not active or not isinstance(players, list):
         return snapshot
     try:
-        snapshot["players"] = _project_overview_players(_find_campaign(active), players)
+        campaign_dir = _find_campaign(active)
+        snapshot["players"] = _project_inventory_players(
+            campaign_dir,
+            _project_overview_players(campaign_dir, players),
+        )
     except (OSError, ValueError):
         pass
     return snapshot
