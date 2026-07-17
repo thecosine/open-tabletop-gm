@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "campaign": "fixture-campaign",
+      "character": "Fixture Hero",
+      "inventory": {
+        "schema_version": 1,
+        "groups": {
+          "carried": [
+            {
+              "id": "fixture-rope",
+              "name": "Silk rope",
+              "quantity": 50,
+              "unit": "ft",
+              "container_id": "fixture-pack"
+            }
+          ],
+          "containers": [
+            {
+              "id": "fixture-pack",
+              "name": "Travel pack",
+              "notes": "Kept dry"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

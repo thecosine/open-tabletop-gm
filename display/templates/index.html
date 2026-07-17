@@ -1165,6 +1165,84 @@
   .dashboard-condition-list .sb-condition-pill { font-size: 10px; }
   .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: rgba(244,240,228,0.94); }
   .dashboard-slot-row strong { color: #f1d27b; }
+  .dashboard-inventory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .dashboard-inventory-section {
+    min-width: 0;
+    padding: 12px;
+    background: #11100d;
+    border-left: 2px solid rgba(180,140,60,0.3);
+  }
+  .dashboard-inventory-section.wide { grid-column: 1 / -1; }
+  .dashboard-inventory-title,
+  .dashboard-inventory-subtitle {
+    color: rgba(226,188,94,0.88);
+    font-family: 'Cinzel', serif;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .dashboard-inventory-subtitle {
+    margin-top: 11px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(180,140,60,0.16);
+    color: rgba(214,179,94,0.72);
+    font-size: 8px;
+  }
+  .dashboard-inventory-list { margin-top: 7px; }
+  .dashboard-inventory-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(180,140,60,0.09);
+  }
+  .dashboard-inventory-row:last-child { border-bottom: 0; }
+  .dashboard-inventory-name { min-width: 0; color: rgba(244,240,228,0.94); font-size: 12px; line-height: 1.4; }
+  .dashboard-inventory-quantity {
+    min-width: 54px;
+    color: #f1d27b;
+    font: 10px 'Cinzel', serif;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .dashboard-inventory-detail {
+    grid-column: 1 / -1;
+    color: rgba(215,208,190,0.62);
+    font-size: 10px;
+    line-height: 1.45;
+  }
+  .dashboard-equipment-row {
+    display: grid;
+    grid-template-columns: minmax(94px, 0.7fr) minmax(0, 1.3fr);
+    gap: 4px 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(180,140,60,0.09);
+  }
+  .dashboard-equipment-row:last-child { border-bottom: 0; }
+  .dashboard-equipment-slot {
+    color: rgba(214,179,94,0.72);
+    font: 8px 'Cinzel', serif;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+  }
+  .dashboard-equipment-name { color: rgba(244,240,228,0.94); font-size: 12px; line-height: 1.4; }
+  .dashboard-equipment-detail {
+    grid-column: 2;
+    color: rgba(215,208,190,0.62);
+    font-size: 10px;
+    line-height: 1.45;
+  }
+  .dashboard-container-card {
+    margin-top: 8px;
+    padding: 10px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(180,140,60,0.14);
+  }
+  .dashboard-container-card:first-of-type { margin-top: 7px; }
+  .dashboard-container-name { color: rgba(239,215,150,0.96); font: 12px 'Cinzel', serif; }
+  .dashboard-container-notes { margin-top: 4px; color: rgba(215,208,190,0.62); font-size: 10px; line-height: 1.5; }
+  .dashboard-container-contents { margin-top: 8px; padding-top: 7px; border-top: 1px solid rgba(180,140,60,0.12); }
+  .dashboard-container-contents-label { color: rgba(200,165,80,0.65); font: 8px 'Cinzel', serif; letter-spacing: 1px; text-transform: uppercase; }
   .dashboard-people-list { display: grid; gap: 10px; }
   .dashboard-person-card {
     display: grid;
@@ -1215,6 +1293,8 @@
     .dashboard-portrait.sb-player-portrait { width: 84px; height: 84px; flex-basis: 84px; }
     #dashboard-full-sheet { order: 3; }
     .dashboard-overview-grid { grid-template-columns: 1fr; }
+    .dashboard-inventory-grid { grid-template-columns: 1fr; }
+    .dashboard-inventory-section.wide { grid-column: auto; }
     .dashboard-ability-grid { grid-template-columns: repeat(3, minmax(54px, 1fr)); }
     .dashboard-person-card { grid-template-columns: 52px minmax(0, 1fr); gap: 10px; }
     .dashboard-person-portrait-slot,
@@ -6599,6 +6679,245 @@ function _renderDashboardOverview(panel, p) {
   panel.appendChild(grid);
 }
 
+function _inventoryQuantity(item) {
+  if (!item || item.quantity == null) return '';
+  return `${item.quantity}${item.unit ? ` ${item.unit}` : ''}`;
+}
+
+function _inventoryDetails(item) {
+  const details = [];
+  if (item.condition) details.push(item.condition);
+  if (item.notes) details.push(item.notes);
+  if (item.weight && item.weight.value != null && item.weight.unit) {
+    details.push(`${item.weight.value} ${item.weight.unit}`);
+  }
+  return details;
+}
+
+function _appendInventoryRows(container, items) {
+  const list = document.createElement('div');
+  list.className = 'dashboard-inventory-list';
+  items.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'dashboard-inventory-row';
+    const name = document.createElement('div');
+    name.className = 'dashboard-inventory-name';
+    name.textContent = item.name || 'Item';
+    const quantity = document.createElement('div');
+    quantity.className = 'dashboard-inventory-quantity';
+    quantity.textContent = _inventoryQuantity(item);
+    row.append(name, quantity);
+    const details = _inventoryDetails(item);
+    if (details.length) {
+      const detail = document.createElement('div');
+      detail.className = 'dashboard-inventory-detail';
+      detail.textContent = details.join(' · ');
+      row.appendChild(detail);
+    }
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+}
+
+function _inventorySection(grid, title, items, className = '') {
+  if (!Array.isArray(items) || !items.length) return null;
+  const section = document.createElement('section');
+  section.className = `dashboard-inventory-section${className ? ` ${className}` : ''}`;
+  const heading = document.createElement('div');
+  heading.className = 'dashboard-inventory-title';
+  heading.textContent = title;
+  section.appendChild(heading);
+  _appendInventoryRows(section, items);
+  grid.appendChild(section);
+  return section;
+}
+
+const _INVENTORY_SLOT_LABELS = {
+  armor: 'Armor',
+  main_hand: 'Main Hand',
+  off_hand: 'Off Hand',
+  active_ranged: 'Active Ranged Weapon',
+  head: 'Head',
+  neck: 'Neck',
+  shoulders: 'Shoulders',
+  chest: 'Chest',
+  waist: 'Waist',
+  hands: 'Hands',
+  feet: 'Feet',
+  ring_1: 'Ring',
+  ring_2: 'Ring',
+  worn_misc_1: 'Worn Item',
+  worn_misc_2: 'Worn Item',
+};
+
+function _inventoryItemMap(groups) {
+  const map = new Map();
+  ['carried', 'consumables', 'currency'].forEach(group => {
+    (Array.isArray(groups[group]) ? groups[group] : []).forEach(item => map.set(item.id, item));
+  });
+  (Array.isArray(groups.containers) ? groups.containers : []).forEach(container => {
+    map.set(container.id, container);
+    (Array.isArray(container.items) ? container.items : []).forEach(item => map.set(item.id, item));
+  });
+  return map;
+}
+
+function _renderEquipmentGroup(grid, title, slotKeys, slots, itemsById) {
+  const populated = slotKeys.filter(slotKey => slots[slotKey] && itemsById.has(slots[slotKey].item_id));
+  if (!populated.length) return;
+  const section = document.createElement('section');
+  section.className = 'dashboard-inventory-section';
+  const heading = document.createElement('div');
+  heading.className = 'dashboard-inventory-title';
+  heading.textContent = title;
+  section.appendChild(heading);
+  populated.forEach(slotKey => {
+    const item = itemsById.get(slots[slotKey].item_id);
+    const row = document.createElement('div');
+    row.className = 'dashboard-equipment-row';
+    const slot = document.createElement('div');
+    slot.className = 'dashboard-equipment-slot';
+    slot.textContent = _INVENTORY_SLOT_LABELS[slotKey];
+    const name = document.createElement('div');
+    name.className = 'dashboard-equipment-name';
+    name.textContent = item.name;
+    row.append(slot, name);
+    const details = _inventoryDetails(item);
+    if (details.length) {
+      const detail = document.createElement('div');
+      detail.className = 'dashboard-equipment-detail';
+      detail.textContent = details.join(' · ');
+      row.appendChild(detail);
+    }
+    section.appendChild(row);
+  });
+  grid.appendChild(section);
+}
+
+function _carriedAfterEquipment(carried, slots) {
+  const occupied = new Map();
+  Object.values(slots).forEach(ref => {
+    occupied.set(ref.item_id, (occupied.get(ref.item_id) || 0) + 1);
+  });
+  return carried.flatMap(item => {
+    const equippedCount = occupied.get(item.id) || 0;
+    if (!equippedCount) return [item];
+    if (typeof item.quantity !== 'number' || item.quantity <= equippedCount) return [];
+    return [Object.assign({}, item, {quantity: item.quantity - equippedCount})];
+  });
+}
+
+function _renderDashboardInventory(panel, selectedPlayer) {
+  const inventory = selectedPlayer.inventory;
+  const groups = inventory && inventory.schema_version === 1 && inventory.groups
+    && typeof inventory.groups === 'object' ? inventory.groups : null;
+  const grid = document.createElement('div');
+  grid.className = 'dashboard-inventory-grid';
+
+  if (!groups) {
+    const legacy = selectedPlayer.sheet && Array.isArray(selectedPlayer.sheet.inventory)
+      ? selectedPlayer.sheet.inventory : [];
+    if (legacy.length) {
+      _inventorySection(grid, 'Carried Items', legacy.map((name, index) => ({
+        id: `legacy-${index}`,
+        name: String(name),
+      })), 'wide');
+      panel.appendChild(grid);
+      return;
+    }
+    const empty = document.createElement('div');
+    empty.className = 'dashboard-placeholder dashboard-inventory-empty';
+    empty.textContent = 'No inventory details are available yet.';
+    panel.appendChild(empty);
+    return;
+  }
+
+  const itemsById = _inventoryItemMap(groups);
+  const slots = inventory.equipment_state && inventory.equipment_state.slots
+    && typeof inventory.equipment_state.slots === 'object' ? inventory.equipment_state.slots : {};
+  _renderEquipmentGroup(
+    grid,
+    'Weapons & Armor',
+    ['armor', 'main_hand', 'off_hand', 'active_ranged'],
+    slots,
+    itemsById,
+  );
+  _renderEquipmentGroup(
+    grid,
+    'Worn Equipment',
+    ['head', 'neck', 'shoulders', 'chest', 'waist', 'hands', 'feet',
+      'ring_1', 'ring_2', 'worn_misc_1', 'worn_misc_2'],
+    slots,
+    itemsById,
+  );
+  const carried = _carriedAfterEquipment(Array.isArray(groups.carried) ? groups.carried : [], slots);
+  const unidentified = carried.filter(item => item.notes === 'Unidentified loot');
+  const regularCarried = carried.filter(item => item.notes !== 'Unidentified loot');
+  if (regularCarried.length || unidentified.length) {
+    const section = _inventorySection(grid, 'Carried Items', regularCarried.length ? regularCarried : unidentified);
+    if (section && regularCarried.length && unidentified.length) {
+      const subtitle = document.createElement('div');
+      subtitle.className = 'dashboard-inventory-subtitle';
+      subtitle.textContent = 'Unidentified Loot';
+      section.appendChild(subtitle);
+      _appendInventoryRows(section, unidentified);
+    }
+  }
+  _inventorySection(grid, 'Consumables', groups.consumables);
+  _inventorySection(grid, 'Currency', groups.currency);
+
+  const containers = Array.isArray(groups.containers) ? groups.containers : [];
+  if (containers.length) {
+    const section = document.createElement('section');
+    section.className = 'dashboard-inventory-section wide';
+    const heading = document.createElement('div');
+    heading.className = 'dashboard-inventory-title';
+    heading.textContent = 'Containers / Storage';
+    section.appendChild(heading);
+    const allItems = ['carried', 'consumables', 'currency']
+      .flatMap(group => Array.isArray(groups[group]) ? groups[group] : []);
+    containers.forEach(container => {
+      const card = document.createElement('article');
+      card.className = 'dashboard-container-card';
+      const name = document.createElement('div');
+      name.className = 'dashboard-container-name';
+      name.textContent = container.name || 'Container';
+      card.appendChild(name);
+      if (container.notes) {
+        const notes = document.createElement('div');
+        notes.className = 'dashboard-container-notes';
+        notes.textContent = container.notes;
+        card.appendChild(notes);
+      }
+      const contents = [
+        ...(Array.isArray(container.items) ? container.items : []),
+        ...allItems.filter(item => item.container_id === container.id),
+      ];
+      if (contents.length) {
+        const contentsWrap = document.createElement('div');
+        contentsWrap.className = 'dashboard-container-contents';
+        const contentsLabel = document.createElement('div');
+        contentsLabel.className = 'dashboard-container-contents-label';
+        contentsLabel.textContent = 'Stored contents';
+        contentsWrap.appendChild(contentsLabel);
+        _appendInventoryRows(contentsWrap, contents);
+        card.appendChild(contentsWrap);
+      }
+      section.appendChild(card);
+    });
+    grid.appendChild(section);
+  }
+
+  if (!grid.childElementCount) {
+    const empty = document.createElement('div');
+    empty.className = 'dashboard-placeholder dashboard-inventory-empty';
+    empty.textContent = 'No inventory details are available yet.';
+    panel.appendChild(empty);
+    return;
+  }
+  panel.appendChild(grid);
+}
+
 function _appendPersonSection(container, label, values) {
   const present = values.filter(Boolean);
   if (!present.length) return;
@@ -6695,6 +7014,10 @@ function _setDashboardTab(tabName) {
   if (!p) return;
   if (tabName === 'Overview') {
     _renderDashboardOverview(panel, p);
+    return;
+  }
+  if (tabName === 'Inventory') {
+    _renderDashboardInventory(panel, p);
     return;
   }
   if (tabName === 'People') {
@@ -7476,7 +7799,7 @@ function updateStats(stats) {
       if (!p.name) return;
       const existing = _playerData[p.name] || {};
       for (const [k, v] of Object.entries(p)) {
-        if (k === 'overview') {
+        if (k === 'overview' || k === 'inventory') {
           existing[k] = v;
         } else if (v !== null && typeof v === 'object' && !Array.isArray(v) && typeof existing[k] === 'object') {
           existing[k] = Object.assign({}, existing[k], v);

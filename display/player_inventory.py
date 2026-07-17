@@ -1,0 +1,246 @@
+"""Validated, display-safe inventory projections for active campaign players."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+
+
+_PROFILE_PATH = Path(__file__).with_name("player_inventory_profiles.json")
+_ID_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+_GROUPS = ("carried", "consumables", "currency", "containers")
+_ITEM_KEYS = {"id", "name", "quantity", "unit", "notes", "condition", "weight", "container_id"}
+_CONTAINER_KEYS = {"id", "name", "notes", "items"}
+_WEIGHT_KEYS = {"value", "unit"}
+_SLOT_KEYS = {
+    "armor", "main_hand", "off_hand", "active_ranged",
+    "head", "neck", "shoulders", "chest", "waist", "hands", "feet",
+    "ring_1", "ring_2", "worn_misc_1", "worn_misc_2",
+}
+_SLOT_REF_KEYS = {"item_id", "instance"}
+
+
+def _safe_text(value: object, field: str, *, maximum: int = 500) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"inventory {field} must be a string")
+    text = value.strip()
+    if not text or len(text) > maximum or any(ord(char) < 32 for char in text):
+        raise ValueError(f"inventory {field} is unsafe")
+    return text
+
+
+def _stable_id(value: object, field: str = "id") -> str:
+    text = _safe_text(value, field, maximum=100)
+    if not _ID_RE.fullmatch(text):
+        raise ValueError(f"inventory {field} must be a stable lowercase slug")
+    return text
+
+
+def _quantity(value: object, field: str) -> int | float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ValueError(f"inventory {field} must be a non-negative number")
+    return value
+
+
+def _normalize_weight(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _WEIGHT_KEYS:
+        raise ValueError("inventory weight must contain only value and unit")
+    return {
+        "value": _quantity(value["value"], "weight value"),
+        "unit": _safe_text(value["unit"], "weight unit", maximum=20),
+    }
+
+
+def _normalize_item(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or not {"id", "name"}.issubset(value):
+        raise ValueError("inventory items require id and name")
+    if not set(value).issubset(_ITEM_KEYS):
+        raise ValueError("inventory item contains unsupported fields")
+    item: dict[str, Any] = {
+        "id": _stable_id(value["id"]),
+        "name": _safe_text(value["name"], "name", maximum=200),
+    }
+    for field in ("unit", "notes", "condition"):
+        if field in value:
+            item[field] = _safe_text(value[field], field)
+    if "quantity" in value:
+        item["quantity"] = _quantity(value["quantity"], "quantity")
+    if "weight" in value:
+        item["weight"] = _normalize_weight(value["weight"])
+    if "container_id" in value:
+        item["container_id"] = _stable_id(value["container_id"], "container_id")
+    return item
+
+
+def _normalize_container(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or not {"id", "name"}.issubset(value):
+        raise ValueError("inventory containers require id and name")
+    if not set(value).issubset(_CONTAINER_KEYS):
+        raise ValueError("inventory container contains unsupported fields")
+    container: dict[str, Any] = {
+        "id": _stable_id(value["id"]),
+        "name": _safe_text(value["name"], "container name", maximum=200),
+    }
+    if "notes" in value:
+        container["notes"] = _safe_text(value["notes"], "container notes")
+    if "items" in value:
+        if not isinstance(value["items"], list):
+            raise ValueError("inventory container items must be an array")
+        container["items"] = [_normalize_item(item) for item in value["items"]]
+    return container
+
+
+def _normalize_equipment_state(
+    value: object,
+    items_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"slots"} or not isinstance(value["slots"], dict):
+        raise ValueError("inventory equipment_state must contain only a slots object")
+    if not set(value["slots"]).issubset(_SLOT_KEYS):
+        raise ValueError("inventory equipment_state contains an unsupported slot")
+
+    slots: dict[str, dict[str, Any]] = {}
+    occupied_instances: set[tuple[str, int]] = set()
+    for slot_key, raw_ref in value["slots"].items():
+        if (
+            not isinstance(raw_ref, dict)
+            or "item_id" not in raw_ref
+            or not set(raw_ref).issubset(_SLOT_REF_KEYS)
+        ):
+            raise ValueError("inventory slot references require item_id and optional instance")
+        item_id = _stable_id(raw_ref["item_id"], "slot item_id")
+        item = items_by_id.get(item_id)
+        if item is None:
+            raise ValueError("inventory slot references a nonexistent item")
+
+        quantity = item.get("quantity", 1)
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
+            raise ValueError("equipped inventory items require a positive integral quantity")
+        instance = raw_ref.get("instance")
+        if quantity > 1:
+            if isinstance(instance, bool) or not isinstance(instance, int) or not 1 <= instance <= quantity:
+                raise ValueError("stacked equipment requires a valid positive instance")
+        elif instance is not None:
+            raise ValueError("non-stacked equipment cannot specify an instance")
+
+        instance_key = instance if instance is not None else 1
+        identity = (item_id, instance_key)
+        if identity in occupied_instances:
+            raise ValueError("the same inventory instance cannot occupy multiple slots")
+        occupied_instances.add(identity)
+        ref = {"item_id": item_id}
+        if instance is not None:
+            ref["instance"] = instance
+        slots[slot_key] = ref
+    return {"slots": slots}
+
+
+def normalize_inventory(value: object) -> dict[str, Any]:
+    """Validate one inventory projection and return a detached safe copy."""
+    allowed_top_level = {"schema_version", "groups", "equipment_state", "attuned_item_ids"}
+    if (
+        not isinstance(value, dict)
+        or not {"schema_version", "groups"}.issubset(value)
+        or not set(value).issubset(allowed_top_level)
+    ):
+        raise ValueError("inventory contains unsupported top-level fields")
+    if value["schema_version"] != 1 or not isinstance(value["groups"], dict):
+        raise ValueError("unsupported inventory schema")
+    if not set(value["groups"]).issubset(_GROUPS):
+        raise ValueError("inventory contains unsupported groups")
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    seen_ids: set[str] = set()
+    items_by_id: dict[str, dict[str, Any]] = {}
+    container_ids: set[str] = set()
+    item_container_ids: list[str] = []
+    for group_name, records in value["groups"].items():
+        if not isinstance(records, list):
+            raise ValueError(f"inventory group {group_name} must be an array")
+        normalized_records = []
+        for record in records:
+            normalized = _normalize_container(record) if group_name == "containers" else _normalize_item(record)
+            record_ids = [normalized["id"]]
+            record_ids.extend(item["id"] for item in normalized.get("items", []))
+            if any(record_id in seen_ids for record_id in record_ids):
+                raise ValueError("inventory IDs must be unique")
+            seen_ids.update(record_ids)
+            items_by_id[normalized["id"]] = normalized
+            for nested_item in normalized.get("items", []):
+                items_by_id[nested_item["id"]] = nested_item
+            if group_name == "containers":
+                container_ids.add(normalized["id"])
+            elif "container_id" in normalized:
+                item_container_ids.append(normalized["container_id"])
+            normalized_records.append(normalized)
+        if normalized_records:
+            groups[group_name] = normalized_records
+    if any(container_id not in container_ids for container_id in item_container_ids):
+        raise ValueError("inventory item references a missing container")
+
+    inventory: dict[str, Any] = {"schema_version": 1, "groups": groups}
+    if "equipment_state" in value:
+        inventory["equipment_state"] = _normalize_equipment_state(value["equipment_state"], items_by_id)
+    if "attuned_item_ids" in value:
+        raw_attuned = value["attuned_item_ids"]
+        if not isinstance(raw_attuned, list):
+            raise ValueError("inventory attuned_item_ids must be an array")
+        attuned = [_stable_id(item_id, "attuned item_id") for item_id in raw_attuned]
+        if len(attuned) != len(set(attuned)):
+            raise ValueError("inventory attuned_item_ids must be unique")
+        if any(item_id not in items_by_id for item_id in attuned):
+            raise ValueError("inventory attunement references a nonexistent item")
+        inventory["attuned_item_ids"] = attuned
+    return inventory
+
+
+def _profile(campaign: str, character: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        if data.get("schema_version") != 1 or not isinstance(data.get("profiles"), list):
+            return None
+        return next((
+            profile for profile in data["profiles"]
+            if isinstance(profile, dict)
+            and str(profile.get("campaign") or "").casefold() == campaign.casefold()
+            and str(profile.get("character") or "").casefold() == character.casefold()
+        ), None)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def project_player_inventory(campaign_dir: str | Path, player_name: str) -> dict[str, Any] | None:
+    """Return one optional inventory projection; malformed profiles fail closed."""
+    try:
+        profile = _profile(Path(campaign_dir).name, player_name.strip())
+        if not profile or set(profile) != {"campaign", "character", "inventory"}:
+            return None
+        return normalize_inventory(profile["inventory"])
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def project_players(campaign_dir: str | Path, players: object) -> list[dict[str, Any]]:
+    """Copy players and attach inventory only for valid active-campaign profiles."""
+    if not isinstance(players, list):
+        return []
+    projected = []
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+        record = deepcopy(player)
+        record.pop("inventory", None)
+        name = str(record.get("name") or "").strip()
+        inventory = project_player_inventory(campaign_dir, name) if name else None
+        record["inventory"] = inventory
+        projected.append(record)
+    return projected

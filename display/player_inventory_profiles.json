@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "campaign": "mythlon-chronicles",
+      "character": "Mythlon Bladesinger",
+      "inventory": {
+        "schema_version": 1,
+        "groups": {
+          "carried": [
+            {"id": "noble-studded-leather-plus-1", "name": "Noble Studded Leather +1", "quantity": 1},
+            {"id": "dark-scimitars-plus-1", "name": "Dark Scimitar +1", "quantity": 2},
+            {"id": "orc-reaver-iron-key", "name": "Iron key", "quantity": 1, "notes": "Taken from the Orc Reaver", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-orc-reaver", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "orc-iron-cleaver", "name": "Orc iron cleaver", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "upper-cave-goblin-scimitars", "name": "Crude goblin scimitars", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "upper-cave-hide-shields", "name": "Small hide shields", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-upper-cave-1", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-upper-cave-2", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "bone-alarm-whistle", "name": "Bone alarm whistle", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "three-notch-brass-key", "name": "Brass key", "quantity": 1, "notes": "Marked with three notches", "container_id": "dimensional-pouch"},
+            {"id": "plated-orc-harness", "name": "Plated orc harness", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "heavy-cleaver", "name": "Heavy cleaver", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "mid-cave-goblin-scimitars", "name": "Crude goblin scimitars", "quantity": 3, "container_id": "dimensional-pouch"},
+            {"id": "mid-cave-hide-shields", "name": "Hide shields", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "mid-cave-shortbow", "name": "Shortbow", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "reserved-crude-arrows", "name": "Crude arrows", "quantity": 5, "unit": "arrows", "notes": "Reserved for the captured shortbow; includes 2 recovered from the Greenwood stag", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-mid-cave-1", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-mid-cave-2", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-mid-cave-3", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-rough-iron-key", "name": "Rough iron key", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-goblin-scimitars", "name": "Crude goblin scimitars", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-shortbows", "name": "Shortbows", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-usable-arrows", "name": "Usable arrows", "quantity": 13, "unit": "arrows", "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-flint-striker", "name": "Flint striker", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "lower-sentry-bone-whistle", "name": "Small bone whistle", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "prison-heavy-orc-axe", "name": "Heavy orc axe", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "prison-battered-plated-harness", "name": "Battered plated harness", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "prison-shortbow", "name": "Shortbow", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "prison-usable-arrows", "name": "Usable arrows", "quantity": 9, "unit": "arrows", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-prison-1", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-prison-2", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "prison-bone-duty-token", "name": "Bone duty-token", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "firelit-broad-orc-axe", "name": "Broad orc axe", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "firelit-patched-harness", "name": "Patched iron-and-hide harness", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "firelit-goblin-scimitars", "name": "Crude goblin scimitars", "quantity": 2, "container_id": "dimensional-pouch"},
+            {"id": "firelit-shortbow", "name": "Shortbow", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "firelit-usable-arrows", "name": "Usable arrows", "quantity": 12, "unit": "arrows", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-firelit-1", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-firelit-2", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "unidentified-coin-pouch-firelit-3", "name": "Pouch of unfamiliar mixed coins", "quantity": 1, "notes": "Unidentified loot", "container_id": "dimensional-pouch"},
+            {"id": "hemp-rope", "name": "Hemp rope", "quantity": 50, "unit": "ft", "container_id": "dimensional-pouch"},
+            {"id": "iron-spikes", "name": "Iron spikes", "quantity": 11, "container_id": "dimensional-pouch"},
+            {"id": "flint-and-tinder", "name": "Flint and tinder", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "wool-blankets", "name": "Wool blankets", "quantity": 3, "container_id": "dimensional-pouch"},
+            {"id": "compact-healers-supplies", "name": "Compact healer's supplies", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "blue-gray-ingots", "name": "Dense blue-gray metal ingots", "quantity": 3, "notes": "Spiral maker's marks", "container_id": "dimensional-pouch"},
+            {"id": "smoky-violet-crystal", "name": "Smoky violet crystal", "quantity": 1, "notes": "Lead-wrapped", "container_id": "dimensional-pouch"},
+            {"id": "regional-route-sheet", "name": "Waxed regional route sheet", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "silvervein-yarrow", "name": "Silvervein yarrow", "quantity": 9, "unit": "sprigs", "notes": "Coagulant and healing-draught ingredient"},
+            {"id": "rookhaven-guild-token", "name": "Rookhaven Adventurer Guild token", "quantity": 1, "notes": "F-rank; registered to Mythlon Bladesinger"},
+            {"id": "training-arrows", "name": "Training Arrows", "quantity": 2481, "unit": "arrows"},
+            {"id": "war-arrows", "name": "War Arrows", "quantity": 1106, "unit": "arrows", "notes": "Includes the 12 matched arrows made with the heavy composite greatbow"},
+            {"id": "hunting-arrows", "name": "Hunting Arrows", "quantity": 684, "unit": "arrows"},
+            {"id": "heavy-composite-greatbow", "name": "Master-grade heavy composite greatbow", "quantity": 1, "notes": "Nonmagical; upgrade-ready for future Resonant Amberhorn fittings"},
+            {"id": "hybrid-skinning-knife", "name": "Experimental balanced hybrid skinning knife", "quantity": 1, "notes": "Grandmaster workmanship; mundane high-carbon steel; +2 to relevant harvesting checks"},
+            {"id": "master-smiths-tools", "name": "Master-grade Smith's Tools", "quantity": 1, "notes": "+1 to Smith's Tools checks"},
+            {"id": "master-bowyer-fletcher-tools", "name": "Master-grade bowyer/fletcher precision tools", "quantity": 1, "notes": "+1 to bowyery and fletching checks"},
+            {"id": "greenwood-stag-meat", "name": "Greenwood stag meat", "container_id": "dimensional-pouch"},
+            {"id": "greenwood-stag-hide", "name": "Clean Greenwood stag hide", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-meat", "name": "Preserved Amber-Tusk Boar meat", "weight": {"value": 216, "unit": "lb"}, "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-hide", "name": "Pristine thick Amber-Tusk Boar hide", "quantity": 1, "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-rendered-fat", "name": "Clean rendered Amber-Tusk Boar fat", "weight": {"value": 30, "unit": "lb"}, "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-sinew", "name": "Heavy monster sinew", "quantity": 6, "unit": "bundles", "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-bones", "name": "Cleaned Amber-Tusk Boar bones", "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-hooves", "name": "Cleaned Amber-Tusk Boar hooves", "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-bristles", "name": "Cleaned Amber-Tusk Boar bristles", "container_id": "dimensional-pouch"},
+            {"id": "amber-tusk-organs", "name": "Preserved useful Amber-Tusk Boar organs", "container_id": "dimensional-pouch"},
+            {"id": "resonant-amberhorn-tusks", "name": "Pristine Resonant Amberhorn tusks", "quantity": 4, "notes": "Two matched pairs; uncommitted", "container_id": "dimensional-pouch"},
+            {"id": "resonant-amberhorn-root-sheaths", "name": "Preserved Resonant Amberhorn root sheaths", "quantity": 4, "notes": "Uncommitted", "container_id": "dimensional-pouch"},
+            {"id": "resonance-node", "name": "Resonance Node", "quantity": 1, "notes": "Uncommon kinetic/earth-affinity mineralized organ; uncommitted", "container_id": "dimensional-pouch"}
+          ],
+          "consumables": [
+            {"id": "lamp-oil", "name": "Flasks of lamp oil", "quantity": 3, "container_id": "dimensional-pouch"},
+            {"id": "preserved-rations", "name": "Preserved rations", "quantity": 6, "unit": "days", "container_id": "dimensional-pouch"}
+          ],
+          "containers": [
+            {"id": "dimensional-pouch", "name": "Dimensional Pouch", "notes": "Divine-grade storage for deliberately targeted nonliving objects; stored contents contribute no carried weight and remain intentionally retrievable"}
+          ]
+        },
+        "equipment_state": {
+          "slots": {
+            "armor": {"item_id": "noble-studded-leather-plus-1"},
+            "main_hand": {"item_id": "dark-scimitars-plus-1", "instance": 1},
+            "off_hand": {"item_id": "dark-scimitars-plus-1", "instance": 2},
+            "active_ranged": {"item_id": "heavy-composite-greatbow"}
+          }
+        }
+      }
+    },
+    {
+      "campaign": "mythlon-chronicles",
+      "character": "Sassafras Silverleaf",
+      "inventory": {
+        "schema_version": 1,
+        "groups": {
+          "carried": [
+            {"id": "worn-armor-shield-configuration", "name": "Worn armor and shield configuration", "notes": "AC 16; armor type remains unspecified"},
+            {"id": "personal-mace", "name": "Personal mace", "quantity": 1},
+            {"id": "shortbow", "name": "Shortbow", "quantity": 1},
+            {"id": "crude-arrows", "name": "Crude arrows", "quantity": 17, "unit": "arrows"},
+            {"id": "flint-dagger", "name": "Flint dagger", "quantity": 1},
+            {"id": "damaged-holy-symbol", "name": "Holy symbol of Tymora", "quantity": 1, "condition": "damaged"},
+            {"id": "damaged-healers-satchel", "name": "Healer's satchel", "quantity": 1, "condition": "damaged"}
+          ]
+        },
+        "equipment_state": {
+          "slots": {
+            "armor": {"item_id": "worn-armor-shield-configuration"}
+          }
+        }
+      }
+    }
+  ]
+}
