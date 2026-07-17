@@ -99,6 +99,14 @@ class InventoryActionTests(unittest.TestCase):
             {"id": "unquantified-hide", "name": "Unquantified Hide"},
             {"id": "stored-rope", "name": "Stored Rope", "quantity": 50, "unit": "ft", "container_id": "field-pack"},
             {"id": "amber-amulet", "name": "Amber Amulet", "quantity": 1, "requires_attunement": True},
+            {"id": "unitless-stack", "name": "Iron Spikes", "quantity": 3},
+            {"id": "weighted-stack", "name": "Weighted Material", "quantity": 3, "weight": {"value": 12, "unit": "lb"}},
+            {"id": "unidentified-stack", "name": "Unknown Pouches", "quantity": 2, "notes": "Unidentified loot"},
+            {"id": "metadata-stack", "name": "Marked Tokens", "quantity": 3,
+             "aliases": ["Old Tokens", "Practice Tokens"], "notes": "Workshop batch",
+             "condition": "pristine", "compatible_slots": ["off_hand"],
+             "default_slot": "off_hand", "requires_attunement": False,
+             "attunement_notes": "Not magical"},
             {"id": "echo-one", "name": "Echo Token", "quantity": 1},
             {"id": "echo-two", "name": "Echo Token", "quantity": 1},
         ]
@@ -110,6 +118,11 @@ class InventoryActionTests(unittest.TestCase):
                     "id": "field-pack", "name": "Field Pack",
                     "items": [{"id": "legacy-gem", "name": "Legacy Gem", "quantity": 1}],
                 }],
+                "consumables": [{
+                    "id": "lamp-oil", "name": "Lamp Oil", "quantity": 3,
+                    "container_id": "field-pack",
+                }],
+                "currency": [{"id": "silver-coins", "name": "Silver Coins", "quantity": 10}],
             },
             "equipment_state": {"slots": {} if minimal else {"main_hand": {"item_id": "plain-sword"}}},
             "attunement_limit": 3,
@@ -154,6 +167,17 @@ class InventoryActionTests(unittest.TestCase):
             for item in container.get("items", []):
                 if item["id"] == item_id:
                     return copy.deepcopy(item)
+        raise AssertionError(item_id)
+
+    def profile_location(self, item_id: str) -> dict:
+        inventory = self.profile_data["profiles"][0]["inventory"]
+        for group in ("carried", "consumables", "currency"):
+            for item in inventory["groups"].get(group, []):
+                if item["id"] == item_id:
+                    return {"group": group, "container_id": item.get("container_id")}
+        for container in inventory["groups"]["containers"]:
+            if any(item["id"] == item_id for item in container.get("items", [])):
+                return {"group": "nested", "container_id": container["id"]}
         raise AssertionError(item_id)
 
     def add_action(self, **updates) -> dict:
@@ -204,6 +228,32 @@ class InventoryActionTests(unittest.TestCase):
             value["destination"] = {"group": "carried", "container_id": "field-pack"}
         else:
             value["disposition"] = "discarded"
+        value.update(updates)
+        return value
+
+    def quantity_action(self, operation: str = "consume_item", item_id: str = "unitless-stack", **updates) -> dict:
+        value = {
+            "schema_version": 1,
+            "request_id": f"inventory-{operation}-0001",
+            "campaign": self.campaign,
+            "character": "Test Hero",
+            "operation": operation,
+            "expected_revision": 0,
+            "source_text": "Persist the explicit quantity change.",
+            "item_selector": {"item_id": item_id},
+            "expected_item": self.profile_item(item_id),
+            "expected_location": self.profile_location(item_id),
+            "expected_owner_character_id": "test-hero",
+            "expected_equipment_refs": (
+                [{"slot": "main_hand", "item_id": "plain-sword"}] if item_id == "plain-sword" else []
+            ),
+            "expected_attuned": item_id == "amber-amulet",
+        }
+        if operation == "consume_item":
+            value["quantity"] = 1
+        else:
+            value["split_quantity"] = 1
+            value["new_item_id"] = f"{item_id}-split-001"
         value.update(updates)
         return value
 
@@ -540,6 +590,280 @@ class InventoryActionTests(unittest.TestCase):
         self.assertEqual(event["items_after"][0]["id"], "healing-potion-001")
         self.assertNotIn("inventory", event)
 
+    def test_consume_partial_full_groups_containers_and_unitless(self):
+        result = self.execute(self.quantity_action(quantity=2))
+        self.assertEqual(result["status"], "applied")
+        self.assertEqual(self.find_item("unitless-stack")[0]["quantity"], 1)
+        self.assertEqual(self.state()["revision"], 1)
+
+        cases = [
+            ("lamp-oil", 1, 2, "consumables", "field-pack"),
+            ("stored-rope", 10, 40, "carried", "field-pack"),
+            ("iron-key", 1, None, None, None),
+        ]
+        for index, (item_id, amount, remaining, group, container) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(
+                item_id=item_id, quantity=amount, request_id=f"inventory-consume-success-{index:04d}",
+            )
+            with self.subTest(item_id=item_id):
+                self.assertEqual(self.execute(action)["status"], "applied")
+                if remaining is None:
+                    with self.assertRaises(AssertionError):
+                        self.find_item(item_id)
+                else:
+                    item, actual_group, actual_container = self.find_item(item_id)
+                    self.assertEqual((item["quantity"], actual_group, actual_container), (remaining, group, container))
+
+    def test_consume_quantity_validation_and_insufficient_quantity(self):
+        cases = [
+            (True, "invalid_quantity"), (0, "invalid_quantity"), (-1, "invalid_quantity"),
+            (1.5, "invalid_quantity"), (self.mod.MAX_QUANTITY + 1, "quantity_too_large"),
+            (4, "insufficient_quantity"),
+        ]
+        for index, (quantity, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(quantity=quantity, request_id=f"inventory-consume-invalid-{index:04d}")
+            with self.subTest(quantity=quantity):
+                self.assertEqual(self.execute(action)["code"], code)
+                self.assertEqual(self.state()["revision"], 0)
+                self.assertEqual(self.state()["characters"], {})
+        self.reset_state()
+        missing = self.quantity_action(request_id="inventory-consume-missing-0001")
+        missing.pop("quantity")
+        self.assertEqual(self.execute(missing)["code"], "invalid_payload")
+
+    def test_consume_ineligible_records_reject_without_refresh(self):
+        cases = [
+            ("unquantified-hide", "item_unquantified"),
+            ("weighted-stack", "item_weighted"),
+            ("silver-coins", "item_currency"),
+            ("unidentified-stack", "item_unidentified"),
+            ("legacy-gem", "item_nested"),
+            ("plain-sword", "item_equipped"),
+            ("amber-amulet", "item_attuned"),
+        ]
+        for index, (item_id, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(item_id=item_id, request_id=f"inventory-consume-ineligible-{index:04d}")
+            with self.subTest(item_id=item_id), mock.patch.object(self.mod.common, "refresh_display") as refresh:
+                self.assertEqual(self.mod.execute_action(action, refresh=True)["code"], code)
+                refresh.assert_not_called()
+        self.reset_state()
+        container = self.quantity_action(request_id="inventory-consume-container-0001")
+        container["item_selector"] = {"item_id": "field-pack"}
+        self.assertEqual(self.execute(container)["code"], "container_not_supported")
+
+    def test_consume_stale_dimensions_audit_replay_and_conflict(self):
+        base = self.quantity_action(quantity=2)
+        cases = [
+            ({"expected_revision": 1}, "stale_revision"),
+            ({"expected_item": {**base["expected_item"], "quantity": 2}}, "stale_item"),
+            ({"expected_location": {"group": "consumables", "container_id": None}}, "stale_location"),
+            ({"expected_owner_character_id": "other-hero"}, "stale_owner"),
+            ({"expected_equipment_refs": [{"slot": "off_hand", "item_id": "unitless-stack"}]}, "stale_equipment_state"),
+            ({"expected_attuned": True}, "stale_attunement_state"),
+        ]
+        for index, (updates, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(request_id=f"inventory-consume-stale-{index:04d}", **updates)
+            with self.subTest(code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+
+        self.reset_state()
+        first = self.execute(base)
+        self.assertEqual(self.execute(copy.deepcopy(base)), first)
+        self.assertEqual(self.state()["revision"], 1)
+        event = self.state()["events"][-1]
+        self.assertEqual(event["consumed_quantity"], 2)
+        self.assertEqual(event["quantities_before"], {"unitless-stack": 3})
+        self.assertEqual(event["quantities_after"], {"unitless-stack": 1})
+        self.assertNotIn("inventory", event)
+        conflict = copy.deepcopy(base)
+        conflict["quantity"] = 1
+        self.assertEqual(self.execute(conflict)["code"], "duplicate_request_conflict")
+        self.assertEqual(self.state()["revision"], 1)
+
+    def test_consume_zero_result_audit_has_no_zero_record(self):
+        result = self.execute(self.quantity_action(item_id="iron-key"))
+        self.assertEqual(result["status"], "applied")
+        event = self.state()["events"][-1]
+        self.assertEqual(event["items_after"], [])
+        self.assertEqual(event["locations_after"], [])
+        self.assertEqual(event["quantities_after"], {"iron-key": 0})
+        self.assertNotIn('"quantity": 0', json.dumps(self.inventory()))
+
+    def test_consume_changes_only_quantity_and_preserves_all_metadata(self):
+        before = self.profile_item("metadata-stack")
+        result = self.execute(self.quantity_action(item_id="metadata-stack"))
+        self.assertEqual(result["status"], "applied")
+        after = self.find_item("metadata-stack")[0]
+        self.assertEqual(after["quantity"], 2)
+        self.assertEqual(
+            {key: value for key, value in after.items() if key != "quantity"},
+            {key: value for key, value in before.items() if key != "quantity"},
+        )
+
+    def test_split_success_conserves_quantity_metadata_location_and_alias_order(self):
+        action = self.quantity_action(
+            operation="split_stack", item_id="stored-rope", split_quantity=20,
+            new_item_id="stored-rope-split-001",
+        )
+        before = self.profile_item("stored-rope")
+        self.assertEqual(self.execute(action)["status"], "applied")
+        source, source_group, source_container = self.find_item("stored-rope")
+        new, new_group, new_container = self.find_item("stored-rope-split-001")
+        self.assertEqual((source["quantity"], new["quantity"]), (30, 20))
+        self.assertEqual(source["quantity"] + new["quantity"], before["quantity"])
+        self.assertEqual((source_group, source_container), (new_group, new_container))
+        self.assertEqual(
+            {key: value for key, value in source.items() if key not in {"id", "quantity"}},
+            {key: value for key, value in new.items() if key not in {"id", "quantity"}},
+        )
+        self.assertEqual(source["id"], "stored-rope")
+
+        self.reset_state()
+        alias_action = self.quantity_action(
+            operation="split_stack", item_id="iron-key", new_item_id="iron-key-split-001",
+        )
+        self.assertEqual(self.execute(alias_action)["code"], "insufficient_quantity")
+        two = self.profile_item("echo-one")
+        two["quantity"] = 2
+        self.profile_data["profiles"][0]["inventory"]["groups"]["carried"][-2] = two
+        self.profile_path.write_text(json.dumps(self.profile_data), encoding="utf-8")
+        split_two = self.quantity_action(
+            operation="split_stack", item_id="echo-one", new_item_id="echo-one-split-001",
+            expected_item=two, request_id="inventory-split-two-0001",
+        )
+        self.assertEqual(self.execute(split_two)["status"], "applied")
+        self.assertEqual(self.find_item("echo-one")[0]["quantity"], 1)
+        self.assertEqual(self.find_item("echo-one-split-001")[0]["quantity"], 1)
+
+        self.reset_state()
+        metadata_before = self.profile_item("metadata-stack")
+        metadata_action = self.quantity_action(
+            operation="split_stack", item_id="metadata-stack",
+            new_item_id="metadata-stack-split-001", request_id="inventory-split-metadata-0001",
+        )
+        self.assertEqual(self.execute(metadata_action)["status"], "applied")
+        metadata_after = self.find_item("metadata-stack-split-001")[0]
+        self.assertEqual(metadata_after["aliases"], metadata_before["aliases"])
+        self.assertEqual(metadata_after["notes"], metadata_before["notes"])
+        self.assertEqual(
+            {key: value for key, value in metadata_after.items() if key not in {"id", "quantity"}},
+            {key: value for key, value in metadata_before.items() if key not in {"id", "quantity"}},
+        )
+
+    def test_split_quantity_validation_missing_id_and_collisions(self):
+        cases = [
+            (0, "invalid_quantity"), (-1, "invalid_quantity"), (1.5, "invalid_quantity"),
+            (3, "insufficient_quantity"), (4, "insufficient_quantity"),
+            (self.mod.MAX_QUANTITY + 1, "quantity_too_large"),
+        ]
+        for index, (quantity, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(
+                operation="split_stack", split_quantity=quantity,
+                request_id=f"inventory-split-invalid-{index:04d}",
+            )
+            with self.subTest(quantity=quantity):
+                self.assertEqual(self.execute(action)["code"], code)
+        self.reset_state()
+        missing = self.quantity_action(operation="split_stack", request_id="inventory-split-missing-id-0001")
+        missing.pop("new_item_id")
+        self.assertEqual(self.execute(missing)["code"], "invalid_payload")
+        for index, collision in enumerate(("iron-key", "legacy-gem", "field-pack"), 1):
+            self.reset_state()
+            action = self.quantity_action(
+                operation="split_stack", new_item_id=collision,
+                request_id=f"inventory-split-collision-{index:04d}",
+            )
+            self.assertEqual(self.execute(action)["code"], "item_id_collision")
+
+    def test_split_ineligible_and_oversized_sources_reject(self):
+        cases = [
+            ("unquantified-hide", "item_unquantified"),
+            ("weighted-stack", "item_weighted"),
+            ("silver-coins", "item_currency"),
+            ("unidentified-stack", "item_unidentified"),
+            ("legacy-gem", "item_nested"),
+            ("plain-sword", "item_equipped"),
+            ("amber-amulet", "item_attuned"),
+        ]
+        for index, (item_id, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.quantity_action(
+                operation="split_stack", item_id=item_id,
+                request_id=f"inventory-split-ineligible-{index:04d}",
+            )
+            with self.subTest(item_id=item_id):
+                self.assertEqual(self.execute(action)["code"], code)
+
+        self.reset_state()
+        container = self.quantity_action(
+            operation="split_stack", request_id="inventory-split-container-0001",
+        )
+        container["item_selector"] = {"item_id": "field-pack"}
+        self.assertEqual(self.execute(container)["code"], "container_not_supported")
+
+        self.reset_state()
+        oversized = self.profile_item("unitless-stack")
+        oversized["quantity"] = self.mod.MAX_QUANTITY + 1
+        self.profile_data["profiles"][0]["inventory"]["groups"]["carried"][5] = oversized
+        self.profile_path.write_text(json.dumps(self.profile_data), encoding="utf-8")
+        action = self.quantity_action(
+            operation="split_stack", expected_item=oversized,
+            request_id="inventory-split-oversized-source-0001",
+        )
+        self.assertEqual(self.execute(action)["code"], "quantity_too_large")
+
+    def test_split_audit_replay_conflict_and_rollbacks(self):
+        action = self.quantity_action(operation="split_stack", split_quantity=2)
+        first = self.execute(action)
+        self.assertEqual(first["status"], "applied")
+        self.assertEqual(self.execute(copy.deepcopy(action)), first)
+        self.assertEqual(self.state()["revision"], 1)
+        event = self.state()["events"][-1]
+        for field in (
+            "source_before", "source_after", "new_item_after", "shared_location",
+            "split_quantity", "new_item_id", "quantities_before", "quantities_after",
+            "equipment_refs_before", "equipment_refs_after", "attunement_refs_before",
+            "attunement_refs_after", "result",
+        ):
+            self.assertIn(field, event)
+        conflict = copy.deepcopy(action)
+        conflict["new_item_id"] = "unitless-stack-split-002"
+        self.assertEqual(self.execute(conflict)["code"], "duplicate_request_conflict")
+
+        self.reset_state()
+        original_normalize = self.mod.player_inventory.normalize_inventory
+
+        def reject_split_result(value):
+            if "unitless-stack-split-001" in json.dumps(value):
+                raise ValueError("injected")
+            return original_normalize(value)
+
+        with mock.patch.object(self.mod.player_inventory, "normalize_inventory", side_effect=reject_split_result):
+            failed = self.execute(self.quantity_action(
+                operation="split_stack", request_id="inventory-split-validation-fail-0001",
+            ))
+        self.assertEqual(failed["code"], "invalid_inventory_state")
+        self.assertEqual(self.state()["revision"], 0)
+        self.assertEqual(self.state()["characters"], {})
+
+        self.reset_state()
+        with mock.patch.object(self.mod.common, "atomic_json", side_effect=OSError("injected")):
+            failed = self.execute(self.quantity_action(
+                operation="split_stack", request_id="inventory-split-atomic-fail-0001",
+            ))
+        self.assertEqual(failed["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
+
+    def test_combine_stack_remains_unsupported(self):
+        action = self.quantity_action(operation="split_stack")
+        action["operation"] = "combine_stacks"
+        self.assertEqual(self.execute(action)["code"], "invalid_payload")
+
     def test_rejections_do_not_seed_or_increment_and_never_audit_item_records(self):
         result = self.execute(self.item_action(
             request_id="inventory-reject-safe-0001", expected_attuned=True,
@@ -570,7 +894,9 @@ class InventoryActionTests(unittest.TestCase):
             self.assertEqual(result["status"], "applied")
             refresh.assert_called_once_with(self.campaign)
         projected = self.mod.player_inventory.project_player_inventory(self.campaign_dir, "Test Hero")
-        self.assertEqual(projected["groups"]["consumables"][0]["id"], "healing-potion-001")
+        self.assertIn("healing-potion-001", {
+            item["id"] for item in projected["groups"]["consumables"]
+        })
         projected_again = self.mod.player_inventory.project_player_inventory(self.campaign_dir, "Test Hero")
         self.assertEqual(projected_again, projected)
 
