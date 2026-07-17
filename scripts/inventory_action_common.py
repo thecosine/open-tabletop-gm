@@ -12,6 +12,7 @@ import json
 import os
 import re
 import ssl
+import stat
 import sys
 import tempfile
 import urllib.error
@@ -118,7 +119,20 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 @contextlib.contextmanager
 def state_lock(directory: Path) -> Iterator[None]:
-    with (directory / LOCK_FILE).open("a+") as handle:
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(directory / LOCK_FILE, flags, 0o600)
+    try:
+        lock_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(lock_stat.st_mode) or lock_stat.st_nlink != 1 or lock_stat.st_uid != os.geteuid():
+            raise OSError("unsafe inventory lock")
+        os.fchmod(descriptor, 0o600)
+        handle = os.fdopen(descriptor, "a+")
+        descriptor = -1
+    except Exception:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise
+    with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
@@ -159,7 +173,10 @@ def event_result(event: dict[str, Any]) -> dict[str, Any] | None:
 def prior_request(
     state: dict[str, Any], request: str, hashed_action: str,
 ) -> tuple[dict[str, Any] | None, bool]:
-    prior_events = [event for event in state["events"] if event.get("request_id") == request]
+    prior_events = [
+        event for event in state["events"]
+        if isinstance(event, dict) and event.get("request_id") == request
+    ]
     exact = next((event for event in reversed(prior_events) if event.get("action_hash") == hashed_action), None)
     return (event_result(exact) if exact is not None else None), bool(prior_events)
 
@@ -192,7 +209,7 @@ def append_rejection(
 
 
 def audit_invalid_payload(
-    value: object, error: ActionError, operations: set[str],
+    value: object, error: ActionError, operations: set[str], *, request_prefix: str | None = None,
 ) -> dict[str, Any] | None:
     """Persist safe rejection context without trusting malformed action fields."""
     if not isinstance(value, dict):
@@ -208,6 +225,7 @@ def audit_invalid_payload(
     character = value.get("character")
     if (
         not isinstance(raw_request, str) or not REQUEST_RE.fullmatch(raw_request)
+        or (request_prefix is not None and not raw_request.startswith(request_prefix))
         or not isinstance(raw_campaign, str) or not CAMPAIGN_RE.fullmatch(raw_campaign)
         or not isinstance(character, str) or not character.strip() or len(character) > 200
         or any(ord(char) < 32 for char in character)

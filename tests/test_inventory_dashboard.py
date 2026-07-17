@@ -140,7 +140,7 @@ class InventoryProjectionTests(unittest.TestCase):
     def test_attunement_references_must_exist_and_be_unique(self):
         base = {
             "schema_version": 1,
-            "groups": {"carried": [{"id": "amulet", "name": "Amulet"}]},
+            "groups": {"carried": [{"id": "amulet", "name": "Amulet", "quantity": 1}]},
         }
         valid = self.inventory.normalize_inventory({**base, "attuned_item_ids": ["amulet"]})
         self.assertEqual(valid["attuned_item_ids"], ["amulet"])

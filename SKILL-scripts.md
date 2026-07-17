@@ -200,9 +200,7 @@ python3 <skill-base>/display/push_stats.py --player Vesper \
 python3 <skill-base>/display/push_stats.py --player Vesper --slot-use 3      # expend one 3rd-level slot
 python3 <skill-base>/display/push_stats.py --player Vesper --slot-restore 3  # restore one 3rd-level slot
 
-# Inventory:
-python3 <skill-base>/display/push_stats.py --player Aldric --inventory-add "Iron key"
-python3 <skill-base>/display/push_stats.py --player Aldric --inventory-remove "Potion of Superior Healing"
+# Persistent inventory changes use scripts/inventory_action.py, documented below.
 
 # Faction standings (required at /gm load to show faction panel):
 python3 <skill-base>/display/push_stats.py \
@@ -246,7 +244,7 @@ python3 <skill-base>/display/push_stats.py --clear
 - Spell slot used — `--slot-use <level>`; restored — `--slot-restore <level>`
 - Condition gained — `--conditions-add "Name"`; removed — `--conditions-remove "Name"`
 - Concentration starts — `--concentrate "Spell"`; ends — `--concentrate ""`
-- Item gained — `--inventory-add "Item"`; spent — `--inventory-remove "Item"`
+- Persistent item ownership/location change — use `scripts/inventory_action.py`; do not use legacy display-only inventory flags
 - Faction changes — `--factions '[...]'` (full replace)
 - Quest status changes — `--quests '[...]'` (full replace; use `[]` to clear all)
 - Quest creation/update/reconciliation — update `state.md` first, then use
@@ -299,6 +297,37 @@ python3 <skill-base>/display/check_input.py
 ```
 
 If output is present, use it as the player action for this turn. If both queued input and a terminal message exist, merge them. Empty output — proceed normally.
+
+---
+
+## Inventory Actions — `scripts/inventory_action.py`
+
+Trusted GM-only command for explicit persistent ownership and item-location changes. It accepts one strict JSON object on stdin. Supported initial operations are `add_item`, whole-record `remove_item`, and whole-record `move_item`. It shares `inventory-state.json`, the campaign revision, lock, request-ID namespace, audit history, atomic persistence, and projection-only display refresh with equipment and attunement actions. Inventory request IDs begin with `inventory-`.
+
+```bash
+python3 <skill-base>/scripts/inventory_action.py <<'GMEND'
+{
+  "schema_version": 1,
+  "request_id": "inventory-20260717-abc123",
+  "campaign": "my-campaign",
+  "character": "Aldric",
+  "operation": "move_item",
+  "expected_revision": 0,
+  "source_text": "Put the iron key in the field pack.",
+  "item_selector": {"item_id": "iron-key"},
+  "expected_item": {"id": "iron-key", "name": "Iron Key", "quantity": 1},
+  "expected_location": {"group": "carried", "container_id": null},
+  "expected_owner_character_id": "aldric",
+  "expected_equipment_refs": [],
+  "expected_attuned": false,
+  "destination": {"group": "carried", "container_id": "field-pack"}
+}
+GMEND
+```
+
+`add_item` additionally requires a complete validated `new_item` with caller-supplied ID and positive integer quantity, an explicit `destination`, `expected_owner_character_id`, and literal `expected_item_id_absent: true`. `remove_item` requires the same exact expected-state fields as `move_item` plus one disposition: `discarded`, `destroyed`, `lost`, or `ownership-ended`. It always removes the whole record. No operation merges items, changes partial quantities, creates containers, equips, or changes attunement.
+
+Invoke it only for settled persistent intent such as `add to inventory`, `acquire into inventory`, `take into inventory`, `discard`, `destroy`, `remove from inventory`, `move into container`, or `take out of container`. Do not invoke it for `pick up`, `hold`, temporary `hand`, `inspect`, `examine`, `count`, `search`, `use`, `drink`, `fire`, or `throw`. Ask for clarification for `take it`, `give her the item`, `put it away`, `use a potion`, `get rid of it`, and `move the arrows`. Equipment, attunement, and inventory persistence remain separate.
 
 ---
 

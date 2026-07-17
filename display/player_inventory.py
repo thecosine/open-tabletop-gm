@@ -99,6 +99,8 @@ def _normalize_item(value: object) -> dict[str, Any]:
         item["aliases"] = [_safe_text(alias, "alias", maximum=200) for alias in aliases]
         if len({alias.casefold() for alias in item["aliases"]}) != len(item["aliases"]):
             raise ValueError("inventory aliases must be unique")
+        if item["name"].casefold() in {alias.casefold() for alias in item["aliases"]}:
+            raise ValueError("inventory aliases must not duplicate the canonical name")
     if "compatible_slots" in value:
         compatible = value["compatible_slots"]
         if not isinstance(compatible, list) or len(compatible) > len(_SLOT_KEYS):
@@ -117,6 +119,11 @@ def _normalize_item(value: object) -> dict[str, Any]:
             raise ValueError("inventory default_slot must be compatible")
         item["default_slot"] = default_slot
     return item
+
+
+def normalize_item(value: object) -> dict[str, Any]:
+    """Validate one ordinary item record independently of its inventory location."""
+    return _normalize_item(value)
 
 
 def _normalize_container(value: object) -> dict[str, Any]:
@@ -203,6 +210,7 @@ def normalize_inventory(value: object) -> dict[str, Any]:
     items_by_id: dict[str, dict[str, Any]] = {}
     container_ids: set[str] = set()
     item_container_ids: list[str] = []
+    item_physical_containers: dict[str, str | None] = {}
     for group_name, records in value["groups"].items():
         if not isinstance(records, list):
             raise ValueError(f"inventory group {group_name} must be an array")
@@ -216,8 +224,13 @@ def normalize_inventory(value: object) -> dict[str, Any]:
             seen_ids.update(record_ids)
             if group_name != "containers":
                 items_by_id[normalized["id"]] = normalized
+                item_physical_containers[normalized["id"]] = normalized.get("container_id")
             for nested_item in normalized.get("items", []):
+                explicit_container = nested_item.get("container_id")
+                if explicit_container is not None and explicit_container != normalized["id"]:
+                    raise ValueError("nested inventory item contradicts its physical container")
                 items_by_id[nested_item["id"]] = nested_item
+                item_physical_containers[nested_item["id"]] = normalized["id"]
             if group_name == "containers":
                 container_ids.add(normalized["id"])
             elif "container_id" in normalized:
@@ -236,6 +249,11 @@ def normalize_inventory(value: object) -> dict[str, Any]:
         inventory["attunement_limit"] = limit
     if "equipment_state" in value:
         inventory["equipment_state"] = _normalize_equipment_state(value["equipment_state"], items_by_id)
+        if any(
+            item_physical_containers.get(ref["item_id"]) is not None
+            for ref in inventory["equipment_state"]["slots"].values()
+        ):
+            raise ValueError("equipped inventory items cannot remain in a physical container")
     if "attuned_item_ids" in value:
         raw_attuned = value["attuned_item_ids"]
         if not isinstance(raw_attuned, list):
@@ -245,6 +263,15 @@ def normalize_inventory(value: object) -> dict[str, Any]:
             raise ValueError("inventory attuned_item_ids must be unique")
         if any(item_id not in items_by_id for item_id in attuned):
             raise ValueError("inventory attunement references a nonexistent item")
+        if any(
+            isinstance(items_by_id[item_id].get("quantity"), bool)
+            or not isinstance(items_by_id[item_id].get("quantity"), int)
+            or items_by_id[item_id]["quantity"] != 1
+            for item_id in attuned
+        ):
+            raise ValueError("attuned inventory items require an explicit quantity of one")
+        if "attunement_limit" in inventory and len(attuned) > inventory["attunement_limit"]:
+            raise ValueError("inventory attunement exceeds attunement_limit")
         inventory["attuned_item_ids"] = attuned
     return inventory
 
