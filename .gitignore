@@ -90,6 +90,8 @@ imports/
 
 # Local campaign state
 characters/
+!tests/fixtures/player_overview/mythlon-chronicles/characters/
+!tests/fixtures/player_overview/mythlon-chronicles/characters/*.md
 .name_registry.json
 .name_registry.json.*
 

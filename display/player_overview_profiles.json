@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "campaign": "mythlon-chronicles",
+      "character": "Mythlon Bladesinger",
+      "saving_throw_pillars": [
+        {
+          "class": "Rogue",
+          "subclass": "Bladedancer",
+          "source": "Bladedancer",
+          "proficiencies": ["dex", "int"]
+        },
+        {
+          "class": "Wizard",
+          "subclass": "Chronurgy Magic",
+          "source": "Chronurgy Wizard",
+          "proficiencies": ["int", "wis"]
+        },
+        {
+          "class": "Bard",
+          "subclass": "College of Swords",
+          "source": "College of Swords Bard",
+          "proficiencies": ["dex", "cha"]
+        }
+      ]
+    }
+  ]
+}

@@ -37,7 +37,8 @@ class MilestoneCounterTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.live_stats_path = REPO / "display" / "stats.json"
-        cls.live_stats_before = cls.live_stats_path.read_bytes()
+        cls.live_stats_existed = cls.live_stats_path.exists()
+        cls.live_stats_before = cls.live_stats_path.read_bytes() if cls.live_stats_existed else None
         cls.stats_tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.stats_tmp.cleanup)
         cls.mod = _import_app()
@@ -53,11 +54,14 @@ class MilestoneCounterTests(unittest.TestCase):
         }
 
     def tearDown(self):
-        self.assertEqual(
-            self.live_stats_path.read_bytes(),
-            self.live_stats_before,
-            "milestone test modified the live display/stats.json",
-        )
+        if self.live_stats_existed:
+            self.assertEqual(
+                self.live_stats_path.read_bytes(),
+                self.live_stats_before,
+                "milestone test modified the live display/stats.json",
+            )
+        else:
+            self.assertFalse(self.live_stats_path.exists())
 
     def _post(self, body):
         return self.client.post(

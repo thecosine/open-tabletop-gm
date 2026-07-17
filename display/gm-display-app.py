@@ -80,6 +80,7 @@ from people_cache import (
     empty_snapshot as _empty_people_snapshot,
 )
 from portrait_paths import normalize_player_records as _normalize_player_records
+from player_overview import project_players as _project_overview_players
 
 # TTS module — degrades silently if Gemini API key not configured.
 # See docs/SKILL-tts.md for setup.
@@ -1070,6 +1071,20 @@ def _active_campaign() -> str:
         return ""
 
 
+def _stats_for_display(stats: dict, campaign: str = "") -> dict:
+    """Copy live stats and attach canonical character summaries for browser use."""
+    snapshot = dict(stats)
+    active = campaign or _active_campaign()
+    players = snapshot.get("players")
+    if not active or not isinstance(players, list):
+        return snapshot
+    try:
+        snapshot["players"] = _project_overview_players(_find_campaign(active), players)
+    except (OSError, ValueError):
+        pass
+    return snapshot
+
+
 def _quest_meta(snapshot: dict) -> dict:
     return {key: snapshot.get(key) for key in (
         "schema_version", "campaign", "version", "updated_at"
@@ -1351,7 +1366,10 @@ def chunk():
         _persist_stats()
         with _stats_lock:
             campaign_stats = dict(_current_stats)
-        _broadcast({"stats": campaign_stats})
+        # Registration precedes the replacement player snapshot. Clear cards in
+        # this broadcast so old live stats cannot be paired with new campaign canon.
+        campaign_stats["players"] = []
+        _broadcast({"stats": _stats_for_display(campaign_stats, campaign)})
 
     # XP dispositions are structured, bodyless feed events. Persist them so a
     # reconnect replays the same award/defer summary without touching stats.
@@ -1905,7 +1923,7 @@ def stats():
             "quests": quest_snapshot["quests"],
             "quests_meta": _quest_meta(quest_snapshot),
         }
-    _broadcast({"stats": broadcast_stats})
+    _broadcast({"stats": _stats_for_display(broadcast_stats)})
     # Broadcast any round-based effect expiries after the stats update
     for evt in _effect_expire_events:
         _broadcast({"effect_expired": evt})
@@ -1954,7 +1972,7 @@ def effects_expire():
 
     if expire_evt:
         _broadcast({"effect_expired": expire_evt})
-    _broadcast({"stats": current})
+    _broadcast({"stats": _stats_for_display(current)})
     _persist_stats()
     return "", 204
 
@@ -2800,8 +2818,9 @@ def stream():
 
     # Send current stats so the sidebar is populated immediately on (re)connect.
     with _stats_lock:
-        if _current_stats:
-            q.put_nowait({"stats": dict(_current_stats)})
+        initial_stats = dict(_current_stats)
+    if initial_stats:
+        q.put_nowait({"stats": _stats_for_display(initial_stats)})
 
     # Send current input queue so the pending indicator is accurate on reconnect.
     with _input_lock:
