@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import re
+import unicodedata
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,10 @@ from typing import Any
 _PROFILE_PATH = Path(__file__).with_name("player_inventory_profiles.json")
 _ID_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _GROUPS = ("carried", "consumables", "currency", "containers")
-_ITEM_KEYS = {"id", "name", "quantity", "unit", "notes", "condition", "weight", "container_id"}
+_ITEM_KEYS = {
+    "id", "name", "quantity", "unit", "notes", "condition", "weight", "container_id",
+    "aliases", "compatible_slots", "default_slot",
+}
 _CONTAINER_KEYS = {"id", "name", "notes", "items"}
 _WEIGHT_KEYS = {"value", "unit"}
 _SLOT_KEYS = {
@@ -22,6 +27,7 @@ _SLOT_KEYS = {
     "ring_1", "ring_2", "worn_misc_1", "worn_misc_2",
 }
 _SLOT_REF_KEYS = {"item_id", "instance"}
+_STATE_FILE = "inventory-state.json"
 
 
 def _safe_text(value: object, field: str, *, maximum: int = 500) -> str:
@@ -78,6 +84,30 @@ def _normalize_item(value: object) -> dict[str, Any]:
         item["weight"] = _normalize_weight(value["weight"])
     if "container_id" in value:
         item["container_id"] = _stable_id(value["container_id"], "container_id")
+    if "aliases" in value:
+        aliases = value["aliases"]
+        if not isinstance(aliases, list) or len(aliases) > 20:
+            raise ValueError("inventory aliases must be an array of at most 20 strings")
+        item["aliases"] = [_safe_text(alias, "alias", maximum=200) for alias in aliases]
+        if len({alias.casefold() for alias in item["aliases"]}) != len(item["aliases"]):
+            raise ValueError("inventory aliases must be unique")
+    if "compatible_slots" in value:
+        compatible = value["compatible_slots"]
+        if not isinstance(compatible, list) or len(compatible) > len(_SLOT_KEYS):
+            raise ValueError("inventory compatible_slots must be a bounded array")
+        normalized_slots = [_safe_text(slot, "compatible slot", maximum=30) for slot in compatible]
+        if any(slot not in _SLOT_KEYS for slot in normalized_slots):
+            raise ValueError("inventory item contains an unsupported compatible slot")
+        if len(normalized_slots) != len(set(normalized_slots)):
+            raise ValueError("inventory compatible_slots must be unique")
+        item["compatible_slots"] = normalized_slots
+    if "default_slot" in value:
+        default_slot = _safe_text(value["default_slot"], "default slot", maximum=30)
+        if default_slot not in _SLOT_KEYS:
+            raise ValueError("inventory item contains an unsupported default slot")
+        if "compatible_slots" in item and default_slot not in item["compatible_slots"]:
+            raise ValueError("inventory default_slot must be compatible")
+        item["default_slot"] = default_slot
     return item
 
 
@@ -203,6 +233,80 @@ def normalize_inventory(value: object) -> dict[str, Any]:
     return inventory
 
 
+def stable_character_id(name: str) -> str:
+    """Return a portable stable slug for one campaign character name."""
+    safe = _safe_text(name, "character name", maximum=200)
+    ascii_name = unicodedata.normalize("NFKD", safe).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.casefold()).strip("-")
+    digest = hashlib.sha256(safe.casefold().encode("utf-8")).hexdigest()[:16]
+    if not slug:
+        slug = f"character-{digest}"
+    elif not safe.isascii():
+        slug = f"{slug[:83].rstrip('-')}-{digest}"
+    elif len(slug) > 100:
+        slug = f"{slug[:83].rstrip('-')}-{digest}"
+    if not _ID_RE.fullmatch(slug):
+        raise ValueError("inventory character name cannot form a stable ID")
+    return slug
+
+
+def _normalize_character_record(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {"display_name", "aliases", "inventory"}:
+        raise ValueError("inventory state character contains unsupported fields")
+    aliases = value["aliases"]
+    if not isinstance(aliases, list) or len(aliases) > 20:
+        raise ValueError("inventory state character aliases must be a bounded array")
+    normalized_aliases = [_safe_text(alias, "character alias", maximum=200) for alias in aliases]
+    if len(normalized_aliases) != len({alias.casefold() for alias in normalized_aliases}):
+        raise ValueError("inventory state character aliases must be unique")
+    return {
+        "display_name": _safe_text(value["display_name"], "character display_name", maximum=200),
+        "aliases": normalized_aliases,
+        "inventory": normalize_inventory(value["inventory"]),
+    }
+
+
+def normalize_inventory_state(value: object, campaign: str) -> dict[str, Any]:
+    """Validate one campaign-local mutable inventory document."""
+    required = {"schema_version", "campaign", "revision", "characters", "events"}
+    if not isinstance(value, dict) or set(value) != required:
+        raise ValueError("inventory state contains unsupported fields")
+    if value["schema_version"] != 1 or value["campaign"] != campaign:
+        raise ValueError("inventory state campaign or schema does not match")
+    revision = value["revision"]
+    if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+        raise ValueError("inventory state revision must be a non-negative integer")
+    if not isinstance(value["characters"], dict) or len(value["characters"]) > 100:
+        raise ValueError("inventory state characters must be a bounded object")
+    characters: dict[str, dict[str, Any]] = {}
+    for character_id, record in value["characters"].items():
+        normalized_id = _stable_id(character_id, "character ID")
+        if normalized_id != character_id:
+            raise ValueError("inventory state character ID is not canonical")
+        characters[character_id] = _normalize_character_record(record)
+    if not isinstance(value["events"], list):
+        raise ValueError("inventory state events must be an array")
+    return {
+        "schema_version": 1,
+        "campaign": campaign,
+        "revision": revision,
+        "characters": characters,
+        "events": deepcopy(value["events"]),
+    }
+
+
+def load_inventory_state(campaign_dir: str | Path) -> dict[str, Any] | None:
+    """Load a valid campaign-local inventory state, or return no override."""
+    directory = Path(campaign_dir)
+    try:
+        return normalize_inventory_state(
+            json.loads((directory / _STATE_FILE).read_text(encoding="utf-8")),
+            directory.name,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def _profile(campaign: str, character: str) -> dict[str, Any] | None:
     try:
         data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
@@ -218,13 +322,31 @@ def _profile(campaign: str, character: str) -> dict[str, Any] | None:
         return None
 
 
-def project_player_inventory(campaign_dir: str | Path, player_name: str) -> dict[str, Any] | None:
-    """Return one optional inventory projection; malformed profiles fail closed."""
+def profile_inventory(campaign: str, character: str) -> dict[str, Any] | None:
+    """Return one validated tracked profile without applying mutable state."""
     try:
-        profile = _profile(Path(campaign_dir).name, player_name.strip())
+        profile = _profile(campaign, character.strip())
         if not profile or set(profile) != {"campaign", "character", "inventory"}:
             return None
         return normalize_inventory(profile["inventory"])
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def project_player_inventory(campaign_dir: str | Path, player_name: str) -> dict[str, Any] | None:
+    """Return one optional inventory projection; malformed profiles fail closed."""
+    try:
+        directory = Path(campaign_dir)
+        name = player_name.strip()
+        character_id = stable_character_id(name)
+        state = load_inventory_state(directory)
+        if state is not None:
+            record = state["characters"].get(character_id)
+            if record is not None:
+                known_names = [record["display_name"], *record["aliases"]]
+                if any(candidate.casefold() == name.casefold() for candidate in known_names):
+                    return deepcopy(record["inventory"])
+        return profile_inventory(directory.name, name)
     except (OSError, TypeError, ValueError):
         return None
 

@@ -158,3 +158,9 @@ python3 <skill-base>/display/check_input.py
 ```
 
 If output is non-empty, use it as the player action for this turn. Merge with any terminal message if both exist.
+
+## Persistent Equipment Intent
+
+Only the trusted GM may translate clear persistent loadout intent into a strict JSON call to `scripts/equipment_action.py`. Valid intent includes equip, unequip, swap/replace, wear/remove, stow/put away, and set as main hand, off hand, or active ranged weapon. Use stable item IDs when known and ask for clarification when resolution is ambiguous.
+
+Do not call the equipment command for ordinary combat narration: draw, fire, attack, aim, hold, fighting stance, or use of an off-hand weapon. There is no keyword-only automatic parser. Equipment actions preserve attunement unchanged. Return the command's confirmation or controlled error through the normal narration channel.
