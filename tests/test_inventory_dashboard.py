@@ -225,9 +225,10 @@ class InventoryProjectionTests(unittest.TestCase):
         for forbidden in ("denomination", "value", "spendable", "gold", "silver", "copper"):
             self.assertNotIn(forbidden, serialized)
 
-    def test_attunement_is_omitted(self):
-        serialized = json.dumps(self._project("Mythlon Bladesinger")).casefold()
-        self.assertNotIn("attun", serialized)
+    def test_mythlon_attunement_is_explicitly_empty_with_override(self):
+        projected = self._project("Mythlon Bladesinger")
+        self.assertEqual(projected["attunement_limit"], 5)
+        self.assertEqual(projected["attuned_item_ids"], [])
 
     def test_container_membership_and_properties_are_explicit(self):
         groups = self._project("Mythlon Bladesinger")["groups"]

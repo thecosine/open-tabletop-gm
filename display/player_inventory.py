@@ -17,7 +17,7 @@ _ID_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*\Z")
 _GROUPS = ("carried", "consumables", "currency", "containers")
 _ITEM_KEYS = {
     "id", "name", "quantity", "unit", "notes", "condition", "weight", "container_id",
-    "aliases", "compatible_slots", "default_slot",
+    "aliases", "compatible_slots", "default_slot", "requires_attunement", "attunement_notes",
 }
 _CONTAINER_KEYS = {"id", "name", "notes", "items"}
 _WEIGHT_KEYS = {"value", "unit"}
@@ -78,6 +78,14 @@ def _normalize_item(value: object) -> dict[str, Any]:
     for field in ("unit", "notes", "condition"):
         if field in value:
             item[field] = _safe_text(value[field], field)
+    if "requires_attunement" in value:
+        if not isinstance(value["requires_attunement"], bool):
+            raise ValueError("inventory requires_attunement must be a boolean")
+        item["requires_attunement"] = value["requires_attunement"]
+    if "attunement_notes" in value:
+        item["attunement_notes"] = _safe_text(
+            value["attunement_notes"], "attunement notes", maximum=300,
+        )
     if "quantity" in value:
         item["quantity"] = _quantity(value["quantity"], "quantity")
     if "weight" in value:
@@ -176,7 +184,9 @@ def _normalize_equipment_state(
 
 def normalize_inventory(value: object) -> dict[str, Any]:
     """Validate one inventory projection and return a detached safe copy."""
-    allowed_top_level = {"schema_version", "groups", "equipment_state", "attuned_item_ids"}
+    allowed_top_level = {
+        "schema_version", "groups", "equipment_state", "attuned_item_ids", "attunement_limit",
+    }
     if (
         not isinstance(value, dict)
         or not {"schema_version", "groups"}.issubset(value)
@@ -204,7 +214,8 @@ def normalize_inventory(value: object) -> dict[str, Any]:
             if any(record_id in seen_ids for record_id in record_ids):
                 raise ValueError("inventory IDs must be unique")
             seen_ids.update(record_ids)
-            items_by_id[normalized["id"]] = normalized
+            if group_name != "containers":
+                items_by_id[normalized["id"]] = normalized
             for nested_item in normalized.get("items", []):
                 items_by_id[nested_item["id"]] = nested_item
             if group_name == "containers":
@@ -218,6 +229,11 @@ def normalize_inventory(value: object) -> dict[str, Any]:
         raise ValueError("inventory item references a missing container")
 
     inventory: dict[str, Any] = {"schema_version": 1, "groups": groups}
+    if "attunement_limit" in value:
+        limit = value["attunement_limit"]
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 100:
+            raise ValueError("inventory attunement_limit must be an integer from 0 to 100")
+        inventory["attunement_limit"] = limit
     if "equipment_state" in value:
         inventory["equipment_state"] = _normalize_equipment_state(value["equipment_state"], items_by_id)
     if "attuned_item_ids" in value:
@@ -322,13 +338,39 @@ def _profile(campaign: str, character: str) -> dict[str, Any] | None:
         return None
 
 
+def campaign_attunement_default(campaign: str) -> int | None:
+    """Return an explicitly tracked campaign attunement default, if present."""
+    try:
+        data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        defaults = data.get("campaign_defaults", {})
+        if not isinstance(defaults, dict):
+            return None
+        entry = next((
+            value for name, value in defaults.items()
+            if isinstance(name, str) and name.casefold() == campaign.casefold()
+        ), None)
+        if not isinstance(entry, dict) or set(entry) != {"attunement_default_limit"}:
+            return None
+        limit = entry["attunement_default_limit"]
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 100:
+            return None
+        return limit
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 def profile_inventory(campaign: str, character: str) -> dict[str, Any] | None:
     """Return one validated tracked profile without applying mutable state."""
     try:
         profile = _profile(campaign, character.strip())
         if not profile or set(profile) != {"campaign", "character", "inventory"}:
             return None
-        return normalize_inventory(profile["inventory"])
+        inventory = deepcopy(profile["inventory"])
+        if "attunement_limit" not in inventory:
+            default_limit = campaign_attunement_default(campaign)
+            if default_limit is not None:
+                inventory["attunement_limit"] = default_limit
+        return normalize_inventory(inventory)
     except (OSError, TypeError, ValueError):
         return None
 

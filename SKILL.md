@@ -130,6 +130,11 @@ Player chat remains free text. Invoke `scripts/equipment_action.py` only when th
 
 Ordinary combat narration does **not** change persistent equipment. Never invoke the equipment command merely because the player says `draw`, `fire`, `attack`, `aim`, `hold`, enters a `fighting stance`, or says they `use my off-hand weapon`. Do not add a keyword-only parser. Equip and attune are separate: equipment actions never add, remove, infer, or enforce attunement. Return the command's human-readable confirmation or controlled error through the normal narration channel.
 
+**Persistent attunement actions:**
+Invoke `scripts/attunement_action.py` only for explicit persistent intent using `attune`, `unattune`, `end attunement`, `break attunement`, `replace attunement`, or `swap attunement`. Translate that intent into the command's strict JSON action and use stable item IDs when known. Ask for clarification instead of guessing an item or replacement. `put on`, `wear`, `draw`, `use`, `activate`, `examine`, `aim`, and `attack` do not express attunement intent. `put on` or `wear` may separately express persistent equipment intent, but never attunement by itself. Attunement actions never equip, wear, retrieve, move, remove, or otherwise relocate an item.
+
+"Which items am I attuned to?" is read-only. Answer from the validated projected inventory without invoking an action: an explicit empty list means "You are not currently attuned to any items"; missing attunement data means "Your current attunement state is not recorded"; otherwise enumerate canonical item names. Never create an event or change revision for this question.
+
 **Autorun mode** (`autorun: true` in `state.md → ## Session Flags`):
 
 When autorun is active, Claude drives the turn loop — no GM Enter required. After completing each response, run this blocking wait as the very last Bash call:

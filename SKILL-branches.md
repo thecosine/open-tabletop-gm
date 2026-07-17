@@ -185,11 +185,12 @@ Each player message during an active session:
 
 1. If display running: run `check_input.py` first; merge any queued input with the player's message
 2. If and only if the player clearly expresses persistent equipment-management intent, translate it into strict JSON and run `scripts/equipment_action.py`. Normalize `swap` to `replace`; use stable IDs when known; ask for clarification on ambiguity. Do not run it for ordinary narration such as `draw`, `fire`, `attack`, `aim`, `hold`, `fighting stance`, or `use my off-hand weapon`. Never infer attunement.
-3. Resolve the action narratively
-4. If dice are needed: read `scripts/general.md` → run `dice.py` → narrate result
-5. If display running: send narration via `send.py` (bundle all stat flags in one call). Include the equipment command's confirmation or controlled error when one was run.
-6. If HP/conditions/slots changed: update display with the relevant `push_stats.py` partial flags
-7. If the action resolves an awardable combat, exploration, rescue, quest, diplomacy, crafting, trade-assimilation, dungeon, story, or other meaningful event: assign/confirm its stable event ID and process its XP disposition immediately per `SKILL.md → Experience & Progression`. For Mythlon, use `scripts/mythlon_xp_event.py`; do not leave a generic pending award.
+3. If and only if the player explicitly says `attune`, `unattune`, `end attunement`, `break attunement`, `replace attunement`, or `swap attunement`, translate the intent into strict JSON and run `scripts/attunement_action.py`. Do not run it for `put on`, `wear`, `draw`, `use`, `activate`, `examine`, `aim`, or `attack`. Attunement never changes equipment or item location. A question asking which items are attuned is read-only: answer from the validated projected inventory without invoking either action command.
+4. Resolve the action narratively
+5. If dice are needed: read `scripts/general.md` → run `dice.py` → narrate result
+6. If display running: send narration via `send.py` (bundle all stat flags in one call). Include an inventory command's confirmation or controlled error when one was run.
+7. If HP/conditions/slots changed: update display with the relevant `push_stats.py` partial flags
+8. If the action resolves an awardable combat, exploration, rescue, quest, diplomacy, crafting, trade-assimilation, dungeon, story, or other meaningful event: assign/confirm its stable event ID and process its XP disposition immediately per `SKILL.md → Experience & Progression`. For Mythlon, use `scripts/mythlon_xp_event.py`; do not leave a generic pending award.
 
 **Do not read scripts/general.md unless a roll is needed. Do not read scripts/startup.md unless sending to display.**
 

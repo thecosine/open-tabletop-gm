@@ -164,3 +164,9 @@ If output is non-empty, use it as the player action for this turn. Merge with an
 Only the trusted GM may translate clear persistent loadout intent into a strict JSON call to `scripts/equipment_action.py`. Valid intent includes equip, unequip, swap/replace, wear/remove, stow/put away, and set as main hand, off hand, or active ranged weapon. Use stable item IDs when known and ask for clarification when resolution is ambiguous.
 
 Do not call the equipment command for ordinary combat narration: draw, fire, attack, aim, hold, fighting stance, or use of an off-hand weapon. There is no keyword-only automatic parser. Equipment actions preserve attunement unchanged. Return the command's confirmation or controlled error through the normal narration channel.
+
+## Persistent Attunement Intent
+
+Only the trusted GM may translate explicit `attune`, `unattune`, `end attunement`, `break attunement`, `replace attunement`, or `swap attunement` intent into a strict JSON call to `scripts/attunement_action.py`. Use stable item IDs when known and ask for clarification rather than guessing.
+
+Do not call the attunement command for put on, wear, draw, use, activate, examine, aim, or attack. Put on or wear may represent persistent equipment intent, but never attunement intent by itself. Attunement actions never equip or move items. Answer questions about current attunements from the validated inventory projection without writing an event or changing revision.

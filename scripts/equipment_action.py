@@ -3,21 +3,13 @@
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import datetime as dt
-import fcntl
-import hashlib
 import json
-import os
 import re
-import ssl
 import sys
-import tempfile
-import urllib.error
-import urllib.request
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 SKILL_BASE = Path(__file__).resolve().parent.parent
@@ -28,11 +20,9 @@ if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import player_inventory  # noqa: E402
-from paths import campaign_dir, campaigns_dir  # noqa: E402
+import inventory_action_common as common  # noqa: E402
 
 
-STATE_FILE = "inventory-state.json"
-LOCK_FILE = ".inventory-state.lock"
 OPERATIONS = {"equip", "unequip", "replace", "set_loadout"}
 SLOTS = {
     "armor", "main_hand", "off_hand", "active_ranged",
@@ -46,8 +36,6 @@ SLOT_LABELS = {
     "hands": "Hands", "feet": "Feet", "ring_1": "Ring", "ring_2": "Ring",
     "worn_misc_1": "Worn Item", "worn_misc_2": "Worn Item",
 }
-REQUEST_RE = re.compile(r"^[a-z0-9][a-z0-9._:-]{5,127}$")
-CAMPAIGN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$")
 ID_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TOP_FIELDS = {
     "schema_version", "request_id", "campaign", "character", "operation",
@@ -58,20 +46,11 @@ EQUIP_OPTIONAL_FIELDS = {"expected_occupants", "destination"}
 REQUIRED_FIELDS = TOP_FIELDS - EQUIP_OPTIONAL_FIELDS
 
 
-class ActionError(Exception):
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
-        self.message = message
+ActionError = common.ActionError
 
 
 def _text(value: object, field: str, maximum: int) -> str:
-    if not isinstance(value, str):
-        raise ActionError("invalid_payload", f"{field} must be a string.")
-    text = value.strip()
-    if not text or len(text) > maximum or any(ord(char) < 32 for char in text):
-        raise ActionError("invalid_payload", f"{field} is missing, oversized, or unsafe.")
-    return text
+    return common.safe_text(value, field, maximum)
 
 
 def _stable_item_id(value: object, field: str) -> str:
@@ -106,12 +85,8 @@ def normalize_action(value: object) -> dict[str, Any]:
     if value["schema_version"] != 1:
         raise ActionError("invalid_payload", "Unsupported equipment action schema.")
 
-    request_id = _text(value["request_id"], "request_id", 128)
-    if not REQUEST_RE.fullmatch(request_id):
-        raise ActionError("invalid_payload", "request_id is malformed.")
-    campaign = _text(value["campaign"], "campaign", 100)
-    if not CAMPAIGN_RE.fullmatch(campaign):
-        raise ActionError("invalid_payload", "campaign must be a simple campaign name, not a path.")
+    request_id = common.request_id(value["request_id"])
+    campaign = common.campaign_name(value["campaign"])
     character = _text(value["character"], "character", 200)
     operation = _text(value["operation"], "operation", 30)
     if operation not in OPERATIONS:
@@ -206,63 +181,12 @@ def normalize_action(value: object) -> dict[str, Any]:
     }
 
 
-def _action_hash(action: dict[str, Any]) -> str:
-    encoded = json.dumps(action, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def empty_state(campaign: str) -> dict[str, Any]:
-    return {"schema_version": 1, "campaign": campaign, "revision": 0, "characters": {}, "events": []}
-
-
-def state_path(directory: Path) -> Path:
-    return directory / STATE_FILE
-
-
-def load_state(directory: Path, campaign: str) -> dict[str, Any]:
-    path = state_path(directory)
-    if not path.exists():
-        return empty_state(campaign)
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        return player_inventory.normalize_inventory_state(raw, campaign)
-    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ActionError("persistence_failed", "Campaign inventory state is unreadable or invalid.") from exc
-
-
-def atomic_json(path: Path, value: dict[str, Any]) -> None:
-    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, indent=2, ensure_ascii=False)
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        try:
-            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-            try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError:
-            pass
-    except Exception:
-        try:
-            os.unlink(temporary)
-        except FileNotFoundError:
-            pass
-        raise
-
-
-@contextlib.contextmanager
-def state_lock(directory: Path) -> Iterator[None]:
-    with (directory / LOCK_FILE).open("a+") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+_action_hash = common.action_hash
+empty_state = common.empty_state
+state_path = common.state_path
+load_state = common.load_state
+atomic_json = common.atomic_json
+state_lock = common.state_lock
 
 
 def _ordinary_items(inventory: dict[str, Any]) -> list[dict[str, Any]]:
@@ -548,109 +472,14 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any]) -> tuple
     }
 
 
-def _event_result(event: dict[str, Any]) -> dict[str, Any] | None:
-    result = event.get("result")
-    return copy.deepcopy(result) if isinstance(result, dict) else None
-
-
-def _rejected_result(action: dict[str, Any], error: ActionError) -> dict[str, Any]:
-    return {
-        "status": "rejected",
-        "request_id": action["request_id"],
-        "code": error.code,
-        "message": error.message,
-    }
-
-
-def _append_rejection(
-    state: dict[str, Any], action: dict[str, Any], action_hash: str, error: ActionError,
-) -> dict[str, Any]:
-    result = _rejected_result(action, error)
-    event = {
-        "request_id": action["request_id"],
-        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "character_id": player_inventory.stable_character_id(action["character"]),
-        "operation": action["operation"],
-        "source_text": action["source_text"],
-        "status": "rejected",
-        "code": error.code,
-        "action_hash": action_hash,
-        "result": result,
-    }
-    state["events"].append(event)
-    return result
-
-
-def _campaign_directory(campaign: str) -> Path | None:
-    directory = campaign_dir(campaign)
-    root = campaigns_dir().resolve()
-    try:
-        resolved_directory = directory.resolve(strict=True)
-    except OSError:
-        return None
-    if not directory.is_dir() or directory.is_symlink() or resolved_directory.parent != root:
-        return None
-    return directory
+_event_result = common.event_result
+_rejected_result = common.rejected_result
+_append_rejection = common.append_rejection
+_campaign_directory = common.campaign_directory
 
 
 def _audit_invalid_payload(value: object, error: ActionError) -> dict[str, Any] | None:
-    """Persist a safe rejection context without trusting malformed action fields."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    except (TypeError, ValueError):
-        return None
-    if len(encoded) > 16384:
-        return None
-    request_id = value.get("request_id")
-    campaign = value.get("campaign")
-    character = value.get("character")
-    if (
-        not isinstance(request_id, str) or not REQUEST_RE.fullmatch(request_id)
-        or not isinstance(campaign, str) or not CAMPAIGN_RE.fullmatch(campaign)
-        or not isinstance(character, str) or not character.strip() or len(character) > 200
-        or any(ord(char) < 32 for char in character)
-    ):
-        return None
-    directory = _campaign_directory(campaign)
-    if directory is None:
-        return None
-    action_hash = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-    result = {"status": "rejected", "request_id": request_id, "code": error.code, "message": error.message}
-    try:
-        character_id = player_inventory.stable_character_id(character)
-        with state_lock(directory):
-            state = load_state(directory, campaign)
-            prior_events = [event for event in state["events"] if event.get("request_id") == request_id]
-            exact = next((event for event in reversed(prior_events) if event.get("action_hash") == action_hash), None)
-            if exact is not None and _event_result(exact) is not None:
-                return _event_result(exact)
-            if prior_events:
-                result = {
-                    "status": "rejected", "request_id": request_id,
-                    "code": "duplicate_request_conflict",
-                    "message": "request_id was already used for a different action.",
-                }
-            event: dict[str, Any] = {
-                "request_id": request_id,
-                "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                "character_id": character_id,
-                "status": "rejected",
-                "code": result["code"],
-                "action_hash": action_hash,
-                "result": result,
-            }
-            if value.get("operation") in OPERATIONS:
-                event["operation"] = value["operation"]
-            state["events"].append(event)
-            atomic_json(state_path(directory), state)
-        return result
-    except (ActionError, OSError, TypeError, ValueError):
-        return {
-            "status": "rejected", "request_id": request_id,
-            "code": "persistence_failed", "message": "Inventory rejection could not be audited safely.",
-        }
+    return common.audit_invalid_payload(value, error, OPERATIONS)
 
 
 def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
@@ -672,13 +501,10 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
     try:
         with state_lock(directory):
             state = load_state(directory, action["campaign"])
-            prior_events = [event for event in state["events"] if event.get("request_id") == action["request_id"]]
-            exact_prior = next((event for event in reversed(prior_events) if event.get("action_hash") == action_hash), None)
-            if exact_prior is not None:
-                prior_result = _event_result(exact_prior)
-                if prior_result is not None:
-                    return prior_result
-            if prior_events:
+            prior_result, has_prior = common.prior_request(state, action["request_id"], action_hash)
+            if prior_result is not None:
+                return prior_result
+            if has_prior:
                 conflict = ActionError("duplicate_request_conflict", "request_id was already used for a different action.")
                 result = _append_rejection(state, action, action_hash, conflict)
                 atomic_json(state_path(directory), state)
@@ -687,19 +513,13 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
             try:
                 if state["revision"] != action["expected_revision"]:
                     raise ActionError("stale_revision", "Inventory revision no longer matches expected_revision.")
-                character_id = player_inventory.stable_character_id(action["character"])
-                record = state["characters"].get(character_id)
-                if record is None:
-                    inventory = player_inventory.profile_inventory(action["campaign"], action["character"])
-                    if inventory is None:
-                        selector = action["item_selector"]
-                        label = selector.get("item_id") or selector.get("name")
-                        raise ActionError("item_not_owned", f"{label} is not present in {action['character']}'s inventory.")
-                else:
-                    names = [record["display_name"], *record["aliases"]]
-                    if not any(name.casefold() == action["character"].casefold() for name in names):
-                        raise ActionError("invalid_payload", "Stable character ID conflicts with another character.")
-                    inventory = record["inventory"]
+                character_id, record, inventory = common.resolve_character_snapshot(
+                    state, action["campaign"], action["character"],
+                )
+                if inventory is None:
+                    selector = action["item_selector"]
+                    label = selector.get("item_id") or selector.get("name")
+                    raise ActionError("item_not_owned", f"{label} is not present in {action['character']}'s inventory.")
 
                 updated, details = apply_transition(inventory, action)
                 new_revision = state["revision"] + 1
@@ -748,30 +568,7 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
     return result
 
 
-def refresh_display(campaign: str) -> None:
-    """Best-effort request for the running display to reproject current players."""
-    if os.environ.get("OTGM_SKIP_INVENTORY_REFRESH") == "1":
-        return
-    scheme_file = DISPLAY_DIR / ".scheme"
-    scheme = scheme_file.read_text(encoding="utf-8").strip() if scheme_file.exists() else "http"
-    token_file = DISPLAY_DIR / ".token"
-    token = token_file.read_text(encoding="utf-8").strip() if token_file.exists() else ""
-    body = json.dumps({"campaign": campaign}).encode("utf-8")
-    request = urllib.request.Request(
-        f"{scheme}://localhost:5001/inventory/refresh",
-        data=body,
-        headers={"Content-Type": "application/json", "X-DND-Token": token},
-        method="POST",
-    )
-    context = None
-    if scheme == "https":
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-    try:
-        urllib.request.urlopen(request, timeout=2, context=context).read()
-    except (OSError, urllib.error.URLError):
-        pass
+refresh_display = common.refresh_display
 
 
 def main() -> int:
