@@ -108,6 +108,15 @@ class InventoryActionTests(unittest.TestCase):
             {"id": "unitless-stack", "name": "Iron Spikes", "quantity": 3},
             {"id": "weighted-stack", "name": "Weighted Material", "quantity": 3, "weight": {"value": 12, "unit": "lb"}},
             {"id": "unidentified-stack", "name": "Unknown Pouches", "quantity": 2, "notes": "Unidentified loot"},
+            {"id": "unidentified-stack-two", "name": "Unknown Pouches", "quantity": 2, "notes": "Unidentified loot"},
+            {"id": "unidentified-aliased", "name": "Unknown Relic", "quantity": 1,
+             "aliases": ["Mystery Relic"], "notes": "Unidentified loot"},
+            {"id": "unidentified-unquantified", "name": "Unknown Hide", "notes": "Unidentified loot",
+             "condition": "pristine", "weight": {"value": 7, "unit": "lb"}, "container_id": "field-pack"},
+            {"id": "unidentified-metadata", "name": "Unknown Focus", "quantity": 1, "unit": "piece",
+             "notes": "Unidentified loot", "condition": "intact",
+             "compatible_slots": ["off_hand", "main_hand"],
+             "default_slot": "off_hand", "requires_attunement": False, "attunement_notes": "No bond detected"},
             {"id": "metadata-stack", "name": "Marked Tokens", "quantity": 3,
              "aliases": ["Old Tokens", "Practice Tokens"], "notes": "Workshop batch",
              "condition": "pristine", "compatible_slots": ["off_hand"],
@@ -129,6 +138,9 @@ class InventoryActionTests(unittest.TestCase):
                 "consumables": [{
                     "id": "lamp-oil", "name": "Lamp Oil", "quantity": 3,
                     "container_id": "field-pack",
+                }, {
+                    "id": "unidentified-tonic", "name": "Unknown Tonic", "quantity": 1,
+                    "notes": "Unidentified loot", "container_id": "field-pack",
                 }],
                 "currency": [{"id": "silver-coins", "name": "Silver Coins", "quantity": 10}],
             })
@@ -307,6 +319,34 @@ class InventoryActionTests(unittest.TestCase):
         value.update(updates)
         return value
 
+    def identify_action(self, item_id: str = "unidentified-stack", **updates) -> dict:
+        before = self.profile_item(item_id)
+        after = copy.deepcopy(before)
+        after.update({"name": "Identified Pouches", "notes": "Known homogeneous contents"})
+        inventory = self.profile_inventory()
+        refs = []
+        for slot, ref in inventory.get("equipment_state", {}).get("slots", {}).items():
+            if ref["item_id"] == item_id:
+                refs.append({"slot": slot, **ref})
+        value = {
+            "schema_version": 1,
+            "request_id": "inventory-identify-0001",
+            "campaign": self.campaign,
+            "character": "Test Hero",
+            "operation": "identify_item",
+            "expected_revision": 0,
+            "source_text": "The GM confirms the whole record shares this final identity.",
+            "item_selector": {"item_id": item_id},
+            "expected_item": before,
+            "expected_location": self.profile_location(item_id),
+            "expected_owner_character_id": "test-hero",
+            "expected_equipment_refs": sorted(refs, key=lambda ref: ref["slot"]),
+            "expected_attuned": item_id in inventory.get("attuned_item_ids", []),
+            "identified_item": after,
+        }
+        value.update(updates)
+        return value
+
     def execute(self, value: dict) -> dict:
         return self.mod.execute_action(value, refresh=False)
 
@@ -328,6 +368,7 @@ class InventoryActionTests(unittest.TestCase):
             "{bad",
             '{"schema_version":1,"schema_version":1}',
             '{"schema_version":NaN}',
+            '{"schema_version":Infinity}',
         ]
         for raw in invalid_json:
             result = subprocess.run(
@@ -341,6 +382,272 @@ class InventoryActionTests(unittest.TestCase):
         app_source = (DISPLAY / "gm-display-app.py").read_text(encoding="utf-8")
         self.assertNotIn("flask", source.casefold())
         self.assertNotIn('/inventory/action', app_source)
+
+    def test_identify_payload_is_exact_strict_bounded_and_normalized(self):
+        base = self.identify_action()
+        missing = copy.deepcopy(base)
+        missing.pop("identified_item")
+        cases = [
+            (missing, "invalid_payload"),
+            ({**base, "request_id": "inventory-identify-unknown-0001", "unknown": True}, "invalid_payload"),
+            ({**base, "request_id": "inventory-identify-malformed-0001", "identified_item": []},
+             "invalid_identified_item"),
+            ({**base, "request_id": "inventory-identify-operation-0001", "operation": []}, "invalid_payload"),
+            ({**base, "request_id": "inventory-identify-schema-0001", "schema_version": True}, "invalid_payload"),
+            ({**base, "request_id": "inventory-identify-schema-float-0001", "schema_version": 1.0},
+             "invalid_payload"),
+            ({**base, "request_id": "equipment-identify-0001"}, "invalid_payload"),
+            ({**base, "request_id": "inventory-identify-oversized-0001", "source_text": "x" * 20000},
+             "invalid_payload"),
+        ]
+        for index, (action, code) in enumerate(cases, 1):
+            self.reset_state()
+            with self.subTest(index=index):
+                self.assertEqual(self.execute(action)["code"], code)
+                if self.state_path().exists():
+                    event = self.state()["events"][-1]
+                    self.assertNotIn("expected_item", event)
+                    self.assertNotIn("identified_item", event)
+
+    def test_identify_success_preserves_record_position_location_and_physical_fields(self):
+        cases = [
+            ("unidentified-stack", {"aliases": ["Known Cache"]}),
+            ("unidentified-aliased", {"aliases": ["Known Relic", "Recovered Focus"]}),
+            ("unidentified-aliased", {"aliases": None}),
+            ("unidentified-unquantified", {"aliases": ["Known Hide"]}),
+            ("unidentified-tonic", {"aliases": ["Known Tonic"]}),
+        ]
+        for index, (item_id, changes) in enumerate(cases, 1):
+            self.reset_state()
+            before = self.profile_item(item_id)
+            identified = copy.deepcopy(before)
+            identified["name"] = f"Identified {item_id}"
+            identified["notes"] = "Final adjudicated identity"
+            aliases = changes["aliases"]
+            if aliases is None:
+                identified.pop("aliases", None)
+            else:
+                identified["aliases"] = aliases
+            source_group = self.profile_location(item_id)["group"]
+            source_ids = [item["id"] for item in self.profile_inventory()["groups"][source_group]]
+            source_index = source_ids.index(item_id)
+            action = self.identify_action(
+                item_id, request_id=f"inventory-identify-success-{index:04d}", identified_item=identified,
+            )
+            with self.subTest(item_id=item_id):
+                self.assertEqual(self.execute(action)["status"], "applied")
+                after, group, container = self.find_item(item_id)
+                self.assertEqual(after, identified)
+                self.assertEqual((group, container), (
+                    source_group, before.get("container_id"),
+                ))
+                persisted_ids = [item["id"] for item in self.inventory()["groups"][source_group]]
+                self.assertEqual(persisted_ids.index(item_id), source_index)
+                for field in (
+                    "id", "quantity", "unit", "container_id", "weight", "condition",
+                    "compatible_slots", "default_slot", "requires_attunement", "attunement_notes",
+                ):
+                    self.assertEqual(field in after, field in before)
+                    self.assertEqual(after.get(field), before.get(field))
+                self.assertEqual(self.state()["revision"], 1)
+                self.assertEqual(len(self.state()["events"]), 1)
+                self.assertIn("plain-sword", json.dumps(self.inventory()))
+
+    def test_identify_audit_is_delta_only_computed_and_complete(self):
+        action = self.identify_action()
+        action["identified_item"]["aliases"] = ["Known Cache"]
+        before = copy.deepcopy(action["expected_item"])
+        self.assertEqual(self.execute(action)["status"], "applied")
+        event = self.state()["events"][-1]
+        required = {
+            "preserved_item_id", "item_before", "item_after", "items_before", "items_after",
+            "location_before", "location_after", "locations_before", "locations_after",
+            "quantity_before", "quantity_after", "quantities_before", "quantities_after",
+            "changed_fields", "owner_before", "owner_after", "equipment_refs_before",
+            "equipment_refs_after", "attunement_refs_before", "attunement_refs_after", "result",
+        }
+        self.assertTrue(required.issubset(event))
+        self.assertEqual(event["item_before"], before)
+        self.assertEqual(event["item_after"], action["identified_item"])
+        self.assertEqual(event["items_before"], [event["item_before"]])
+        self.assertEqual(event["items_after"], [event["item_after"]])
+        self.assertEqual(event["location_before"], event["location_after"])
+        self.assertEqual(event["quantity_before"], event["quantity_after"])
+        self.assertEqual(event["changed_fields"], ["aliases", "name", "notes"])
+        self.assertEqual(event["owner_before"], "test-hero")
+        self.assertEqual(event["owner_after"], "test-hero")
+        self.assertNotIn("inventory", event)
+
+    def test_identify_expected_state_and_source_eligibility_rejections_do_not_seed(self):
+        base = self.identify_action()
+        container = self.identify_action(request_id="inventory-identify-container-0001")
+        container["item_selector"] = {"item_id": "field-pack"}
+        cases = [
+            ({"item_selector": {"item_id": "missing"}}, "item_not_owned"),
+            ({"item_selector": {"name": "Unknown Pouches"}}, "ambiguous_item"),
+            ({"expected_item": {**base["expected_item"], "quantity": 1}}, "stale_item"),
+            ({"expected_item": {**base["expected_item"], "quantity": 2.0}}, "stale_item"),
+            ({"expected_location": {"group": "consumables", "container_id": None}}, "stale_location"),
+            ({"expected_owner_character_id": "other-hero"}, "stale_owner"),
+            ({"expected_equipment_refs": [{"slot": "off_hand", "item_id": "unidentified-stack"}]},
+             "stale_equipment_state"),
+            ({"expected_attuned": True}, "stale_attunement_state"),
+            ({"expected_revision": 1}, "stale_revision"),
+            ({"item_selector": {"item_id": "plain-sword"}, "expected_item": self.profile_item("plain-sword"),
+              "expected_location": self.profile_location("plain-sword"),
+              "expected_equipment_refs": [{"slot": "main_hand", "item_id": "plain-sword"}]}, "item_equipped"),
+            ({"item_selector": {"item_id": "amber-amulet"}, "expected_item": self.profile_item("amber-amulet"),
+              "expected_location": self.profile_location("amber-amulet"), "expected_attuned": True,
+              "identified_item": {**self.profile_item("amber-amulet"), "name": "Known Amulet"}}, "item_attuned"),
+            ({"item_selector": {"item_id": "legacy-gem"}, "expected_item": self.profile_item("legacy-gem"),
+              "expected_location": self.profile_location("legacy-gem"),
+              "identified_item": {**self.profile_item("legacy-gem"), "name": "Known Gem"}}, "item_nested"),
+            ({"item_selector": {"item_id": "silver-coins"}, "expected_item": self.profile_item("silver-coins"),
+              "expected_location": self.profile_location("silver-coins"),
+              "identified_item": {**self.profile_item("silver-coins"), "name": "Known Coins"}}, "item_currency"),
+            ({"item_selector": {"item_id": "iron-key"}, "expected_item": self.profile_item("iron-key"),
+              "expected_location": self.profile_location("iron-key"),
+              "identified_item": {**self.profile_item("iron-key"), "name": "Known Key"}},
+             "item_already_identified"),
+            ({"item_selector": {"item_id": "unquantified-hide"},
+              "expected_item": self.profile_item("unquantified-hide"),
+              "expected_location": self.profile_location("unquantified-hide"),
+              "identified_item": {**self.profile_item("unquantified-hide"), "name": "Known Hide"}},
+             "item_already_identified"),
+        ]
+        actions = [(self.identify_action(request_id=f"inventory-identify-reject-{index:04d}", **updates), code)
+                   for index, (updates, code) in enumerate(cases, 1)]
+        actions.append((container, "container_not_supported"))
+        for index, (action, code) in enumerate(actions, 1):
+            self.reset_state()
+            with self.subTest(index=index, code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                state = self.state()
+                self.assertEqual(state["revision"], 0)
+                self.assertEqual(state["characters"], {})
+                event = state["events"][-1]
+                for forbidden in ("expected_item", "identified_item", "item_before", "item_after"):
+                    self.assertNotIn(forbidden, event)
+
+    def test_identify_replacement_invariants_reject_with_controlled_codes(self):
+        base = self.identify_action(item_id="unidentified-metadata")
+        source = base["expected_item"]
+
+        def changed(**updates):
+            item = copy.deepcopy(source)
+            item.update({"name": "Identified Focus", "notes": "Known focus"})
+            item.update(updates)
+            return item
+
+        unchanged_marker = changed(notes="Unidentified loot")
+        cases = [
+            (copy.deepcopy(source), "identified_item_unchanged"),
+            (unchanged_marker, "invalid_identified_item"),
+            (changed(id="different-id"), "identified_item_id_changed"),
+            (changed(quantity=2), "identified_item_quantity_changed"),
+            (changed(quantity=1.0), "identified_item_quantity_changed"),
+            ({key: value for key, value in changed().items() if key != "quantity"},
+             "identified_item_quantity_changed"),
+            (changed(unit="set"), "identified_item_unit_changed"),
+            (changed(container_id="field-pack"), "identified_item_location_changed"),
+            (changed(weight={"value": 1, "unit": "lb"}), "identified_item_weight_changed"),
+            (changed(condition="damaged"), "identified_item_condition_changed"),
+            (changed(compatible_slots=["main_hand"], default_slot="main_hand"),
+             "identified_item_equipment_changed"),
+            (changed(default_slot="main_hand"),
+             "identified_item_equipment_changed"),
+            (changed(requires_attunement=True), "identified_item_attunement_changed"),
+            (changed(attunement_notes="Bond required"), "identified_item_attunement_changed"),
+        ]
+        contained_source = self.profile_item("unidentified-unquantified")
+        contained = {**contained_source, "name": "Known Hide", "notes": "Known material"}
+        cases.extend([
+            ({**changed(), "quantity": 1, "container_id": "field-pack"},
+             "identified_item_location_changed"),
+            ({key: value for key, value in contained.items() if key != "container_id"},
+             "identified_item_location_changed"),
+        ])
+        for index, (identified, code) in enumerate(cases, 1):
+            self.reset_state()
+            item_id = "unidentified-unquantified" if index == len(cases) else "unidentified-metadata"
+            action = self.identify_action(
+                item_id, request_id=f"inventory-identify-invariant-{index:04d}", identified_item=identified,
+            )
+            with self.subTest(index=index, code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                self.assertEqual(self.state()["characters"], {})
+
+        self.reset_state()
+        weighted = {**contained, "weight": {"value": 7.0, "unit": "lb"}}
+        action = self.identify_action(
+            "unidentified-unquantified", request_id="inventory-identify-weight-type-0001",
+            identified_item=weighted,
+        )
+        self.assertEqual(self.execute(action)["code"], "identified_item_weight_changed")
+
+    def test_identify_replay_conflict_shared_namespace_single_write_and_refresh(self):
+        action = self.identify_action()
+        with (
+            mock.patch.object(self.mod.common, "atomic_json", wraps=self.mod.common.atomic_json) as atomic,
+            mock.patch.object(self.mod.common, "refresh_display") as refresh,
+        ):
+            first = self.mod.execute_action(action, refresh=True)
+            replay = self.mod.execute_action(copy.deepcopy(action), refresh=True)
+        self.assertEqual(first, replay)
+        self.assertEqual(atomic.call_count, 1)
+        refresh.assert_called_once_with(self.campaign)
+        self.assertEqual(self.state()["revision"], 1)
+        self.assertEqual(len(self.state()["events"]), 1)
+        self.assertEqual(self.find_item("unidentified-stack")[0]["name"], "Identified Pouches")
+
+        conflict = copy.deepcopy(action)
+        conflict["identified_item"]["name"] = "Conflicting Identity"
+        self.assertEqual(self.execute(conflict)["code"], "duplicate_request_conflict")
+        self.assertEqual(self.state()["revision"], 1)
+
+        equipment_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Test Hero", "operation": "equip", "item_selector": {"item_id": "iron-key"},
+            "target_slots": ["off_hand"], "expected_occupants": [], "destination": {"type": "carried"},
+            "expected_revision": 1, "source_text": "Equip the key.",
+        }
+        attunement_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Test Hero", "operation": "attune", "item_selector": {"item_id": "amber-amulet"},
+            "expected_attuned_item_ids": ["amber-amulet"], "expected_revision": 1,
+            "source_text": "Attune the amulet.",
+        }
+        other_inventory = self.add_action(request_id=action["request_id"], expected_revision=1)
+        self.assertEqual(self.equipment.execute_action(equipment_action, refresh=False)["code"],
+                         "duplicate_request_conflict")
+        self.assertEqual(self.attunement.execute_action(attunement_action, refresh=False)["code"],
+                         "duplicate_request_conflict")
+        self.assertEqual(self.execute(other_inventory)["code"], "duplicate_request_conflict")
+
+    def test_identify_normalization_state_validation_and_atomic_failures_roll_back(self):
+        original_inventory = self.mod.player_inventory.normalize_inventory
+
+        def reject_identified(value):
+            if "Identified Pouches" in json.dumps(value):
+                raise ValueError("injected inventory failure")
+            return original_inventory(value)
+
+        with mock.patch.object(self.mod.player_inventory, "normalize_inventory", side_effect=reject_identified):
+            result = self.execute(self.identify_action(request_id="inventory-identify-inventory-fail-0001"))
+        self.assertEqual(result["code"], "invalid_inventory_state")
+        self.assertEqual(self.state()["characters"], {})
+
+        self.reset_state()
+        with mock.patch.object(self.mod.player_inventory, "normalize_inventory_state", side_effect=ValueError("injected")):
+            result = self.execute(self.identify_action(request_id="inventory-identify-state-fail-0001"))
+        self.assertEqual(result["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
+
+        self.reset_state()
+        with mock.patch.object(self.mod.common, "atomic_json", side_effect=OSError("injected")):
+            result = self.execute(self.identify_action(request_id="inventory-identify-atomic-fail-0001"))
+        self.assertEqual(result["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
 
     def test_campaign_traversal_symlink_and_lock_symlink_reject_safely(self):
         traversal = self.add_action(campaign="../camp-a", request_id="inventory-traversal-0001")

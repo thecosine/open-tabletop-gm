@@ -258,7 +258,7 @@ def audit_invalid_payload(
                 "action_hash": hashed_action,
                 "result": result,
             }
-            if value.get("operation") in operations:
+            if isinstance(value.get("operation"), str) and value["operation"] in operations:
                 event["operation"] = value["operation"]
             state["events"].append(event)
             atomic_json(state_path(directory), state)
