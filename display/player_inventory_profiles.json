@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
+  "campaign_defaults": {
+    "mythlon-chronicles": {
+      "attunement_default_limit": 3
+    }
+  },
   "profiles": [
     {
       "campaign": "mythlon-chronicles",
@@ -95,7 +100,9 @@
             "off_hand": {"item_id": "dark-scimitars-plus-1", "instance": 2},
             "active_ranged": {"item_id": "heavy-composite-greatbow"}
           }
-        }
+        },
+        "attunement_limit": 5,
+        "attuned_item_ids": []
       }
     },
     {
@@ -118,7 +125,9 @@
           "slots": {
             "armor": {"item_id": "worn-armor-shield-configuration"}
           }
-        }
+        },
+        "attunement_limit": 3,
+        "attuned_item_ids": []
       }
     }
   ]

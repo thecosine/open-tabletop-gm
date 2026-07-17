@@ -1188,6 +1188,11 @@
     color: rgba(214,179,94,0.72);
     font-size: 8px;
   }
+  .dashboard-attunement-count {
+    margin-top: 7px;
+    color: #f1d27b;
+    font: 15px 'Cinzel', serif;
+  }
   .dashboard-inventory-list { margin-top: 7px; }
   .dashboard-inventory-row {
     display: grid;
@@ -6835,6 +6840,26 @@ function _renderDashboardInventory(panel, selectedPlayer) {
   const itemsById = _inventoryItemMap(groups);
   const slots = inventory.equipment_state && inventory.equipment_state.slots
     && typeof inventory.equipment_state.slots === 'object' ? inventory.equipment_state.slots : {};
+  if (Array.isArray(inventory.attuned_item_ids)
+      && Number.isInteger(inventory.attunement_limit)) {
+    const attunement = document.createElement('section');
+    attunement.className = 'dashboard-inventory-section';
+    const heading = document.createElement('div');
+    heading.className = 'dashboard-inventory-title';
+    heading.textContent = 'Attunement';
+    const count = document.createElement('div');
+    count.className = 'dashboard-attunement-count';
+    count.textContent = `${inventory.attuned_item_ids.length} / ${inventory.attunement_limit}`;
+    attunement.append(heading, count);
+    const attunedItems = inventory.attuned_item_ids
+      .map(itemId => itemsById.get(itemId))
+      .filter(Boolean)
+      .map(item => Object.assign({}, item, {
+        notes: [item.notes, item.attunement_notes].filter(Boolean).join(' · '),
+      }));
+    if (attunedItems.length) _appendInventoryRows(attunement, attunedItems);
+    grid.appendChild(attunement);
+  }
   _renderEquipmentGroup(
     grid,
     'Weapons & Armor',

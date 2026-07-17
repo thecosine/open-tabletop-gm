@@ -328,6 +328,30 @@ Invoke it only for clear intent such as equip, unequip, swap/replace, wear/remov
 
 ---
 
+## Attunement Actions — `scripts/attunement_action.py`
+
+Trusted GM-only command for explicit persistent attunement changes. Supported operations are `attune`, `unattune`, and `replace_attunement`; there is no bulk `set_attunement` operation. The command shares the campaign inventory lock, revision, request-ID namespace, audit history, and atomic persistence path with equipment actions.
+
+```bash
+python3 <skill-base>/scripts/attunement_action.py <<'GMEND'
+{
+  "schema_version": 1,
+  "request_id": "attunement-20260717-abc123",
+  "campaign": "my-campaign",
+  "character": "Aldric",
+  "operation": "attune",
+  "item_selector": {"item_id": "amulet-of-health"},
+  "expected_attuned_item_ids": [],
+  "expected_revision": 0,
+  "source_text": "Attune to the Amulet of Health."
+}
+GMEND
+```
+
+Invoke it only for `attune`, `unattune`, `end attunement`, `break attunement`, `replace attunement`, or `swap attunement`. Do not invoke it for `put on`, `wear`, `draw`, `use`, `activate`, `examine`, `aim`, or `attack`. Wearing may independently invoke the equipment command, but never implies attunement. Attunement actions preserve equipment slots, quantities, containers, and item locations. Read-only attunement questions are answered from validated projected inventory and never invoke this command.
+
+---
+
 ## Display Companion Setup
 
 ```bash
