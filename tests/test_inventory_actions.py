@@ -46,6 +46,7 @@ class InventoryActionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.mod = _load_module(SCRIPTS / "inventory_action.py", "inventory_action_under_test")
         cls.equipment = _load_module(SCRIPTS / "equipment_action.py", "inventory_equipment_under_test")
+        cls.attunement = _load_module(SCRIPTS / "attunement_action.py", "inventory_attunement_under_test")
         cls.protected_hashes = {
             path: _digest(path) for path in (
                 STATS, PROFILE, LIVE_STATE, CAMPAIGN_STATE, MYTHLON_SHEET, SASSAFRAS_SHEET,
@@ -91,6 +92,11 @@ class InventoryActionTests(unittest.TestCase):
         self.equipment_profile_patch = mock.patch.object(self.equipment.player_inventory, "_PROFILE_PATH", self.profile_path)
         self.equipment_profile_patch.start()
         self.addCleanup(self.equipment_profile_patch.stop)
+        self.attunement_profile_patch = mock.patch.object(
+            self.attunement.player_inventory, "_PROFILE_PATH", self.profile_path,
+        )
+        self.attunement_profile_patch.start()
+        self.addCleanup(self.attunement_profile_patch.stop)
 
     def _profile(self, campaign: str, character: str, *, minimal: bool = False) -> dict:
         carried = [{"id": "other-token", "name": "Other Token", "quantity": 1}] if minimal else [
@@ -110,20 +116,25 @@ class InventoryActionTests(unittest.TestCase):
             {"id": "echo-one", "name": "Echo Token", "quantity": 1},
             {"id": "echo-two", "name": "Echo Token", "quantity": 1},
         ]
-        inventory = {
-            "schema_version": 1,
-            "groups": {
-                "carried": carried,
-                "containers": [{
-                    "id": "field-pack", "name": "Field Pack",
-                    "items": [{"id": "legacy-gem", "name": "Legacy Gem", "quantity": 1}],
-                }],
+        containers = [{
+            "id": "other-pack", "name": "Other Pack",
+            "items": [{"id": "destination-nested", "name": "Nested Token", "quantity": 1}],
+        }] if minimal else [{
+            "id": "field-pack", "name": "Field Pack",
+            "items": [{"id": "legacy-gem", "name": "Legacy Gem", "quantity": 1}],
+        }]
+        groups = {"carried": carried, "containers": containers}
+        if not minimal:
+            groups.update({
                 "consumables": [{
                     "id": "lamp-oil", "name": "Lamp Oil", "quantity": 3,
                     "container_id": "field-pack",
                 }],
                 "currency": [{"id": "silver-coins", "name": "Silver Coins", "quantity": 10}],
-            },
+            })
+        inventory = {
+            "schema_version": 1,
+            "groups": groups,
             "equipment_state": {"slots": {} if minimal else {"main_hand": {"item_id": "plain-sword"}}},
             "attunement_limit": 3,
             "attuned_item_ids": [] if minimal else ["amber-amulet"],
@@ -136,8 +147,8 @@ class InventoryActionTests(unittest.TestCase):
     def state(self, campaign: str | None = None) -> dict:
         return json.loads(self.state_path(campaign).read_text(encoding="utf-8"))
 
-    def inventory(self) -> dict:
-        return self.state()["characters"]["test-hero"]["inventory"]
+    def inventory(self, character_id: str = "test-hero") -> dict:
+        return self.state()["characters"][character_id]["inventory"]
 
     def reset_state(self):
         self.state_path().unlink(missing_ok=True)
@@ -145,8 +156,8 @@ class InventoryActionTests(unittest.TestCase):
         if lock.exists() or lock.is_symlink():
             lock.unlink()
 
-    def find_item(self, item_id: str) -> tuple[dict, str, str | None]:
-        inventory = self.inventory()
+    def find_item(self, item_id: str, character_id: str = "test-hero") -> tuple[dict, str, str | None]:
+        inventory = self.inventory(character_id)
         for group in ("carried", "consumables", "currency"):
             for item in inventory["groups"].get(group, []):
                 if item["id"] == item_id:
@@ -157,8 +168,14 @@ class InventoryActionTests(unittest.TestCase):
                     return item, "nested", container["id"]
         raise AssertionError(f"missing item {item_id}")
 
-    def profile_item(self, item_id: str) -> dict:
-        inventory = self.profile_data["profiles"][0]["inventory"]
+    def profile_inventory(self, character: str = "Test Hero") -> dict:
+        return next(
+            profile["inventory"] for profile in self.profile_data["profiles"]
+            if profile["campaign"] == self.campaign and profile["character"] == character
+        )
+
+    def profile_item(self, item_id: str, character: str = "Test Hero") -> dict:
+        inventory = self.profile_inventory(character)
         for group in ("carried", "consumables", "currency"):
             for item in inventory["groups"].get(group, []):
                 if item["id"] == item_id:
@@ -169,8 +186,8 @@ class InventoryActionTests(unittest.TestCase):
                     return copy.deepcopy(item)
         raise AssertionError(item_id)
 
-    def profile_location(self, item_id: str) -> dict:
-        inventory = self.profile_data["profiles"][0]["inventory"]
+    def profile_location(self, item_id: str, character: str = "Test Hero") -> dict:
+        inventory = self.profile_inventory(character)
         for group in ("carried", "consumables", "currency"):
             for item in inventory["groups"].get(group, []):
                 if item["id"] == item_id:
@@ -254,6 +271,39 @@ class InventoryActionTests(unittest.TestCase):
         else:
             value["split_quantity"] = 1
             value["new_item_id"] = f"{item_id}-split-001"
+        value.update(updates)
+        return value
+
+    def transfer_action(
+        self, item_id: str = "iron-key", *, source_character: str = "Test Hero",
+        destination_character: str = "Other Hero", **updates,
+    ) -> dict:
+        source_id = self.mod.player_inventory.stable_character_id(source_character)
+        destination_id = self.mod.player_inventory.stable_character_id(destination_character)
+        source_inventory = self.profile_inventory(source_character)
+        refs = []
+        for slot, ref in source_inventory.get("equipment_state", {}).get("slots", {}).items():
+            if ref["item_id"] == item_id:
+                refs.append({"slot": slot, **ref})
+        value = {
+            "schema_version": 1,
+            "request_id": "inventory-transfer-0001",
+            "campaign": self.campaign,
+            "character": source_character,
+            "operation": "transfer_item",
+            "expected_revision": 0,
+            "source_text": f"Transfer {item_id} permanently to {destination_character}.",
+            "item_selector": {"item_id": item_id},
+            "expected_item": self.profile_item(item_id, source_character),
+            "expected_location": self.profile_location(item_id, source_character),
+            "expected_owner_character_id": source_id,
+            "expected_equipment_refs": sorted(refs, key=lambda ref: ref["slot"]),
+            "expected_attuned": item_id in source_inventory.get("attuned_item_ids", []),
+            "destination_character": destination_character,
+            "expected_destination_character_id": destination_id,
+            "expected_destination_item_id_absent": True,
+            "destination": {"group": "carried", "container_id": None},
+        }
         value.update(updates)
         return value
 
@@ -858,6 +908,348 @@ class InventoryActionTests(unittest.TestCase):
             ))
         self.assertEqual(failed["code"], "persistence_failed")
         self.assertFalse(self.state_path().exists())
+
+    def test_transfer_payload_is_exact_strict_and_bounded(self):
+        base = self.transfer_action()
+        required = (
+            "destination_character", "expected_destination_character_id",
+            "expected_destination_item_id_absent", "destination",
+        )
+        for index, field in enumerate(required, 1):
+            self.reset_state()
+            action = copy.deepcopy(base)
+            action["request_id"] = f"inventory-transfer-missing-{index:04d}"
+            action.pop(field)
+            self.assertEqual(self.execute(action)["code"], "invalid_payload")
+
+        cases = [
+            ({**base, "request_id": "inventory-transfer-unknown-0001", "unknown": True}, "invalid_payload"),
+            ({**base, "request_id": "equipment-transfer-0001"}, "invalid_payload"),
+            ({**base, "request_id": "inventory-transfer-malformed-0001", "destination": []}, "invalid_payload"),
+            ({**base, "request_id": "inventory-transfer-group-0001",
+              "destination": {"group": "currency", "container_id": None}}, "invalid_destination"),
+            ({**base, "request_id": "inventory-transfer-container-field-0001",
+              "destination": {"group": "carried"}}, "invalid_payload"),
+            ({**base, "request_id": "inventory-transfer-absence-0001",
+              "expected_destination_item_id_absent": 1}, "invalid_payload"),
+            ({**base, "request_id": "inventory-transfer-oversized-0001",
+              "source_text": "x" * 20000}, "invalid_payload"),
+        ]
+        for action, code in cases:
+            self.reset_state()
+            with self.subTest(request_id=action["request_id"]):
+                self.assertEqual(self.execute(action)["code"], code)
+
+        self.reset_state()
+        same = self.transfer_action(
+            destination_character="Test Hero",
+            request_id="inventory-transfer-same-0001",
+            expected_destination_character_id="test-hero",
+        )
+        self.assertEqual(self.execute(same)["code"], "same_character_transfer")
+
+    def test_transfer_success_matrix_preserves_whole_records(self):
+        cases = [
+            ("unitless-stack", {"group": "carried", "container_id": None}),
+            ("unquantified-hide", {"group": "carried", "container_id": None}),
+            ("lamp-oil", {"group": "consumables", "container_id": None}),
+            ("weighted-stack", {"group": "carried", "container_id": None}),
+            ("unidentified-stack", {"group": "carried", "container_id": None}),
+            ("stored-rope", {"group": "carried", "container_id": None}),
+            ("metadata-stack", {"group": "carried", "container_id": "other-pack"}),
+        ]
+        for index, (item_id, destination) in enumerate(cases, 1):
+            self.reset_state()
+            before = self.profile_item(item_id)
+            action = self.transfer_action(
+                item_id, request_id=f"inventory-transfer-success-{index:04d}",
+                destination=destination,
+            )
+            result = self.execute(action)
+            with self.subTest(item_id=item_id):
+                self.assertEqual(result["status"], "applied")
+                with self.assertRaises(AssertionError):
+                    self.find_item(item_id, "test-hero")
+                after, group, container = self.find_item(item_id, "other-hero")
+                expected = copy.deepcopy(before)
+                if destination["container_id"] is None:
+                    expected.pop("container_id", None)
+                else:
+                    expected["container_id"] = destination["container_id"]
+                self.assertEqual(after, expected)
+                self.assertEqual((group, container), (destination["group"], destination["container_id"]))
+                self.assertEqual(after["id"], before["id"])
+                self.assertEqual(after.get("quantity"), before.get("quantity"))
+                self.assertEqual("quantity" in after, "quantity" in before)
+                state = self.state()
+                self.assertEqual(state["revision"], 1)
+                self.assertEqual(set(state["characters"]), {"test-hero", "other-hero"})
+                self.assertEqual(len(state["events"]), 1)
+
+    def test_transfer_audit_is_delta_only_and_complete(self):
+        action = self.transfer_action(item_id="stored-rope")
+        result = self.execute(action)
+        self.assertEqual(result["status"], "applied")
+        event = self.state()["events"][-1]
+        required = {
+            "character_ids", "source_character_id", "destination_character_id",
+            "source_owner_before", "destination_owner_after", "preserved_item_id",
+            "item_before", "item_after", "items_before", "items_after",
+            "source_location", "destination_location", "locations_before", "locations_after",
+            "quantities_before", "quantities_after", "equipment_refs_before",
+            "equipment_refs_after", "attunement_refs_before", "attunement_refs_after", "result",
+        }
+        self.assertTrue(required.issubset(event))
+        self.assertEqual(event["character_ids"], ["test-hero", "other-hero"])
+        self.assertEqual(event["source_character_id"], "test-hero")
+        self.assertEqual(event["destination_character_id"], "other-hero")
+        self.assertEqual(event["preserved_item_id"], "stored-rope")
+        self.assertEqual(event["items_before"], [event["item_before"]])
+        self.assertEqual(event["items_after"], [event["item_after"]])
+        self.assertEqual(event["quantities_before"], {"stored-rope": 50})
+        self.assertEqual(event["quantities_after"], {"stored-rope": 50})
+        self.assertNotIn("inventory", event)
+        self.assertNotIn("destination_inventory", event)
+
+    def test_transfer_unquantified_audit_preserves_omitted_quantity(self):
+        self.assertEqual(self.execute(self.transfer_action(item_id="unquantified-hide"))["status"], "applied")
+        event = self.state()["events"][-1]
+        self.assertNotIn("quantity", event["item_before"])
+        self.assertNotIn("quantity", event["item_after"])
+        self.assertEqual(event["quantities_before"], {"unquantified-hide": None})
+        self.assertEqual(event["quantities_after"], {"unquantified-hide": None})
+
+    def test_transfer_source_rejections_do_not_seed_snapshots_or_trust_records(self):
+        base = self.transfer_action()
+        cases = [
+            ({"item_selector": {"item_id": "missing"}}, "item_not_owned"),
+            ({"item_selector": {"name": "Echo Token"}, "expected_item": self.profile_item("echo-one")}, "ambiguous_item"),
+            ({"expected_item": {**base["expected_item"], "quantity": 2}}, "stale_item"),
+            ({"expected_location": {"group": "consumables", "container_id": None}}, "stale_location"),
+            ({"expected_owner_character_id": "other-hero"}, "stale_owner"),
+            ({"expected_equipment_refs": [{"slot": "off_hand", "item_id": "iron-key"}]}, "stale_equipment_state"),
+            ({"expected_attuned": True}, "stale_attunement_state"),
+        ]
+        for index, (updates, code) in enumerate(cases, 1):
+            self.reset_state()
+            action = self.transfer_action(request_id=f"inventory-transfer-source-{index:04d}", **updates)
+            with self.subTest(code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                state = self.state()
+                self.assertEqual(state["revision"], 0)
+                self.assertEqual(state["characters"], {})
+                event = state["events"][-1]
+                self.assertEqual(event["character_ids"], ["test-hero", "other-hero"])
+                self.assertEqual(event["source_character_id"], "test-hero")
+                self.assertEqual(event["destination_character_id"], "other-hero")
+                for forbidden in ("expected_item", "item_before", "item_after", "destination_inventory"):
+                    self.assertNotIn(forbidden, event)
+
+    def test_transfer_rejects_ineligible_source_record_types(self):
+        cases = [
+            (self.transfer_action(item_id="plain-sword"), "item_equipped"),
+            (self.transfer_action(item_id="amber-amulet"), "item_attuned"),
+            (self.transfer_action(item_id="legacy-gem"), "item_nested"),
+            (self.transfer_action(item_id="silver-coins"), "item_currency"),
+        ]
+        container = self.transfer_action(request_id="inventory-transfer-container-0001")
+        container["item_selector"] = {"item_id": "field-pack"}
+        cases.append((container, "container_not_supported"))
+        for index, (action, code) in enumerate(cases, 1):
+            self.reset_state()
+            action["request_id"] = f"inventory-transfer-ineligible-{index:04d}"
+            with self.subTest(code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                self.assertEqual(self.state()["characters"], {})
+
+    def test_transfer_destination_identity_container_and_group_rejections(self):
+        cases = [
+            (self.transfer_action(
+                destination_character="Missing Hero", expected_destination_character_id="missing-hero",
+            ), "destination_character_not_found"),
+            (self.transfer_action(expected_destination_character_id="wrong-hero"), "stale_destination_owner"),
+            (self.transfer_action(destination={"group": "carried", "container_id": "missing"}),
+             "destination_container_not_found"),
+            (self.transfer_action(destination={"group": "carried", "container_id": "field-pack"}),
+             "destination_container_not_found"),
+            (self.transfer_action(destination={"group": "currency", "container_id": None}),
+             "invalid_destination"),
+        ]
+        for index, (action, code) in enumerate(cases, 1):
+            self.reset_state()
+            action["request_id"] = f"inventory-transfer-destination-{index:04d}"
+            with self.subTest(code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                self.assertEqual(self.state()["characters"], {})
+
+    def test_transfer_destination_collisions_cover_all_id_namespaces(self):
+        collision_ids = ("other-token", "destination-nested", "other-pack")
+        for index, item_id in enumerate(collision_ids, 1):
+            self.reset_state()
+            source_inventory = self.profile_inventory("Test Hero")
+            source_inventory["groups"]["carried"].append({
+                "id": item_id, "name": f"Source {item_id}", "quantity": 1,
+            })
+            self.profile_path.write_text(json.dumps(self.profile_data), encoding="utf-8")
+            action = self.transfer_action(
+                item_id=item_id, request_id=f"inventory-transfer-collision-{index:04d}",
+            )
+            with self.subTest(item_id=item_id):
+                self.assertEqual(self.execute(action)["code"], "destination_item_id_collision")
+                self.assertEqual(self.state()["characters"], {})
+            source_inventory["groups"]["carried"].pop()
+
+    def test_transfer_failures_leave_both_detached_snapshots_unseeded(self):
+        failure_patches = (
+            mock.patch.object(
+                self.mod, "_insert_transfer_record",
+                side_effect=self.mod.ActionError("invalid_inventory_state", "injected insertion failure"),
+            ),
+            mock.patch.object(
+                self.mod, "_remove_transfer_record",
+                side_effect=self.mod.ActionError("invalid_inventory_state", "injected removal failure"),
+            ),
+        )
+        for index, patcher in enumerate(failure_patches, 1):
+            self.reset_state()
+            with patcher:
+                result = self.execute(self.transfer_action(
+                    request_id=f"inventory-transfer-mutation-fail-{index:04d}",
+                ))
+            self.assertEqual(result["code"], "invalid_inventory_state")
+            self.assertEqual(self.state()["revision"], 0)
+            self.assertEqual(self.state()["characters"], {})
+
+    def test_transfer_source_and_destination_normalization_failures_roll_back_both(self):
+        original = self.mod.player_inventory.normalize_inventory
+
+        def reject_source(value):
+            ids = {item["id"] for item in value.get("groups", {}).get("carried", [])}
+            if "plain-sword" in ids and "iron-key" not in ids:
+                raise ValueError("injected source failure")
+            return original(value)
+
+        def reject_destination(value):
+            ids = {item["id"] for item in value.get("groups", {}).get("carried", [])}
+            if {"other-token", "iron-key"}.issubset(ids):
+                raise ValueError("injected destination failure")
+            return original(value)
+
+        for index, failure in enumerate((reject_source, reject_destination), 1):
+            self.reset_state()
+            with mock.patch.object(self.mod.player_inventory, "normalize_inventory", side_effect=failure):
+                result = self.execute(self.transfer_action(
+                    request_id=f"inventory-transfer-normalize-fail-{index:04d}",
+                ))
+            self.assertEqual(result["code"], "invalid_inventory_state")
+            self.assertEqual(self.state()["revision"], 0)
+            self.assertEqual(self.state()["characters"], {})
+
+    def test_transfer_full_validation_and_atomic_write_fail_without_partial_state(self):
+        with mock.patch.object(
+            self.mod.player_inventory, "normalize_inventory_state", side_effect=ValueError("injected"),
+        ):
+            result = self.execute(self.transfer_action(request_id="inventory-transfer-state-fail-0001"))
+        self.assertEqual(result["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
+
+        first = self.execute(self.transfer_action(request_id="inventory-transfer-seed-0001"))
+        self.assertEqual(first["status"], "applied")
+        before = self.state_path().read_bytes()
+        reverse = self.transfer_action(
+            item_id="other-token", source_character="Other Hero", destination_character="Test Hero",
+            expected_revision=1, request_id="inventory-transfer-atomic-fail-0001",
+        )
+        with mock.patch.object(self.mod.common, "atomic_json", side_effect=OSError("injected")):
+            result = self.execute(reverse)
+        self.assertEqual(result["code"], "persistence_failed")
+        self.assertEqual(self.state_path().read_bytes(), before)
+
+    def test_transfer_replay_conflict_revision_namespace_and_single_refresh(self):
+        action = self.transfer_action()
+        with mock.patch.object(self.mod.common, "refresh_display") as refresh:
+            first = self.mod.execute_action(action, refresh=True)
+            second = self.mod.execute_action(copy.deepcopy(action), refresh=True)
+        self.assertEqual(first, second)
+        self.assertEqual(self.state()["revision"], 1)
+        self.assertEqual(len(self.state()["events"]), 1)
+        self.assertEqual(len([
+            item for item in self.inventory("other-hero")["groups"]["carried"]
+            if item["id"] == "iron-key"
+        ]), 1)
+        refresh.assert_called_once_with(self.campaign)
+
+        conflict = copy.deepcopy(action)
+        conflict["destination"] = {"group": "consumables", "container_id": None}
+        self.assertEqual(self.execute(conflict)["code"], "duplicate_request_conflict")
+        stale = self.transfer_action(
+            item_id="other-token", source_character="Other Hero", destination_character="Test Hero",
+            expected_revision=0, request_id="inventory-transfer-stale-0001",
+        )
+        self.assertEqual(self.execute(stale)["code"], "stale_revision")
+
+        equipment_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Other Hero", "operation": "equip", "item_selector": {"item_id": "other-token"},
+            "target_slots": ["off_hand"], "expected_occupants": [],
+            "destination": {"type": "carried"}, "expected_revision": 1,
+            "source_text": "Equip the other token.",
+        }
+        self.assertEqual(
+            self.equipment.execute_action(equipment_action, refresh=False)["code"],
+            "duplicate_request_conflict",
+        )
+        attunement_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Other Hero", "operation": "attune",
+            "item_selector": {"item_id": "other-token"}, "expected_attuned_item_ids": [],
+            "expected_revision": 1, "source_text": "Attune to the other token.",
+        }
+        self.assertEqual(
+            self.attunement.execute_action(attunement_action, refresh=False)["code"],
+            "duplicate_request_conflict",
+        )
+
+    def test_transfer_rejected_replay_is_idempotent(self):
+        action = self.transfer_action(expected_attuned=True)
+        first = self.execute(action)
+        event_count = len(self.state()["events"])
+        self.assertEqual(first["code"], "stale_attunement_state")
+        self.assertEqual(self.execute(copy.deepcopy(action)), first)
+        self.assertEqual(len(self.state()["events"]), event_count)
+        self.assertEqual(self.state()["characters"], {})
+
+    def test_transfer_preserves_seeded_snapshots_and_canonical_profile_names(self):
+        self.assertEqual(self.execute(self.add_action())["status"], "applied")
+        other_add = self.add_action(
+            request_id="inventory-add-other-0001", character="Other Hero",
+            expected_revision=1, expected_owner_character_id="other-hero",
+            new_item={"id": "other-added", "name": "Other Added", "quantity": 1},
+            destination={"group": "carried", "container_id": None},
+        )
+        self.assertEqual(self.execute(other_add)["status"], "applied")
+        transfer = self.transfer_action(
+            expected_revision=2, request_id="inventory-transfer-seeded-0001",
+            destination_character="other hero",
+        )
+        self.assertEqual(self.execute(transfer)["status"], "applied")
+        state = self.state()
+        self.assertEqual(state["characters"]["test-hero"]["display_name"], "Test Hero")
+        self.assertEqual(state["characters"]["other-hero"]["display_name"], "Other Hero")
+        self.assertIsNotNone(self.find_item("healing-potion-001", "test-hero"))
+        self.assertIsNotNone(self.find_item("other-added", "other-hero"))
+        self.assertIsNotNone(self.find_item("iron-key", "other-hero"))
+
+    def test_transfer_uses_one_atomic_write_and_partial_transfer_is_unsupported(self):
+        original = self.mod.common.atomic_json
+        with mock.patch.object(self.mod.common, "atomic_json", wraps=original) as write:
+            self.assertEqual(self.execute(self.transfer_action())["status"], "applied")
+        write.assert_called_once()
+
+        self.reset_state()
+        partial = self.transfer_action(request_id="inventory-transfer-partial-0001")
+        partial["quantity"] = 1
+        self.assertEqual(self.execute(partial)["code"], "invalid_payload")
 
     def test_combine_stack_remains_unsupported(self):
         action = self.quantity_action(operation="split_stack")

@@ -24,8 +24,9 @@ import player_inventory  # noqa: E402
 
 
 ActionError = common.ActionError
-OPERATIONS = {"add_item", "remove_item", "move_item", "consume_item", "split_stack"}
+OPERATIONS = {"add_item", "remove_item", "move_item", "consume_item", "split_stack", "transfer_item"}
 ORDINARY_GROUPS = {"carried", "consumables", "currency"}
+TRANSFER_DESTINATION_GROUPS = {"carried", "consumables"}
 SOURCE_GROUPS = ORDINARY_GROUPS | {"nested"}
 DISPOSITIONS = {"discarded", "destroyed", "lost", "ownership-ended"}
 MAX_QUANTITY = 2147483647
@@ -50,6 +51,10 @@ REMOVE_FIELDS = EXPECTED_FIELDS | {"disposition"}
 MOVE_FIELDS = EXPECTED_FIELDS | {"destination"}
 CONSUME_FIELDS = EXPECTED_FIELDS | {"quantity"}
 SPLIT_FIELDS = EXPECTED_FIELDS | {"split_quantity", "new_item_id"}
+TRANSFER_FIELDS = EXPECTED_FIELDS | {
+    "destination_character", "expected_destination_character_id",
+    "expected_destination_item_id_absent", "destination",
+}
 
 
 def _stable_id(value: object, field: str) -> str:
@@ -147,6 +152,7 @@ def normalize_action(value: object) -> dict[str, Any]:
         "move_item": MOVE_FIELDS,
         "consume_item": CONSUME_FIELDS,
         "split_stack": SPLIT_FIELDS,
+        "transfer_item": TRANSFER_FIELDS,
     }.get(operation)
     if operation_fields is None or set(value) != COMMON_FIELDS | operation_fields:
         raise ActionError("invalid_payload", "Inventory action has missing or unknown fields.")
@@ -202,9 +208,25 @@ def normalize_action(value: object) -> dict[str, Any]:
             action["destination"] = _normalize_location(value["destination"], "destination", destination=True)
         elif operation == "consume_item":
             action["quantity"] = _action_quantity(value["quantity"], "quantity")
-        else:
+        elif operation == "split_stack":
             action["split_quantity"] = _action_quantity(value["split_quantity"], "split_quantity")
             action["new_item_id"] = _stable_id(value["new_item_id"], "new_item_id")
+        else:
+            destination = _normalize_location(value["destination"], "destination", destination=True)
+            if destination["group"] not in TRANSFER_DESTINATION_GROUPS:
+                raise ActionError("invalid_destination", "Transfer destination group must be carried or consumables.")
+            if value["expected_destination_item_id_absent"] is not True:
+                raise ActionError("invalid_payload", "expected_destination_item_id_absent must be true.")
+            action.update({
+                "destination_character": common.safe_text(
+                    value["destination_character"], "destination_character", 200,
+                ),
+                "expected_destination_character_id": _stable_id(
+                    value["expected_destination_character_id"], "expected_destination_character_id",
+                ),
+                "expected_destination_item_id_absent": True,
+                "destination": destination,
+            })
     return action
 
 
@@ -287,6 +309,15 @@ def _validate_destination(inventory: dict[str, Any], destination: dict[str, Any]
         raise ActionError("invalid_destination", "Destination container does not exist in this character's inventory.")
 
 
+def _validate_transfer_destination(inventory: dict[str, Any], destination: dict[str, Any]) -> None:
+    container_id = destination["container_id"]
+    if container_id is not None and container_id not in _container_ids(inventory):
+        raise ActionError(
+            "destination_container_not_found",
+            "Destination container does not exist in the destination character's inventory.",
+        )
+
+
 def _validate_expected(
     inventory: dict[str, Any], action: dict[str, Any], item: dict[str, Any],
     group: str, container_id: str | None, character_id: str,
@@ -309,6 +340,43 @@ def _validate_expected(
 
 def _quantity(item: dict[str, Any]) -> int | float | None:
     return item.get("quantity")
+
+
+def _remove_transfer_record(records: list[dict[str, Any]], item: dict[str, Any]) -> None:
+    records.remove(item)
+
+
+def _insert_transfer_record(
+    inventory: dict[str, Any], group: str, item: dict[str, Any],
+) -> None:
+    inventory.setdefault("groups", {}).setdefault(group, []).append(item)
+
+
+def _snapshot_display_name(
+    record: dict[str, Any] | None, campaign: str, requested_name: str,
+) -> str:
+    if record is not None:
+        return record["display_name"]
+    profile = player_inventory._profile(campaign, requested_name)  # noqa: SLF001
+    if isinstance(profile, dict) and isinstance(profile.get("character"), str):
+        return common.safe_text(profile["character"], "profile character", 200)
+    return requested_name
+
+
+def _append_action_rejection(
+    state: dict[str, Any], action: dict[str, Any], hashed_action: str, error: ActionError,
+) -> dict[str, Any]:
+    result = common.append_rejection(state, action, hashed_action, error)
+    if action["operation"] == "transfer_item":
+        source_id = player_inventory.stable_character_id(action["character"])
+        destination_id = player_inventory.stable_character_id(action["destination_character"])
+        event = state["events"][-1]
+        event.update({
+            "character_ids": [source_id, destination_id],
+            "source_character_id": source_id,
+            "destination_character_id": destination_id,
+        })
+    return result
 
 
 def _quantity_source(item: dict[str, Any]) -> int:
@@ -475,6 +543,89 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
     return validated, details
 
 
+def apply_transfer_transition(
+    source_inventory: dict[str, Any], destination_inventory: dict[str, Any],
+    action: dict[str, Any], source_character_id: str, destination_character_id: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    source_updated = copy.deepcopy(source_inventory)
+    destination_updated = copy.deepcopy(destination_inventory)
+
+    item, group, container_id, records = _resolve_item(
+        source_updated, action["item_selector"], action["character"],
+    )
+    refs, attuned = _validate_expected(
+        source_updated, action, item, group, container_id, source_character_id,
+    )
+    if refs:
+        raise ActionError("item_equipped", "Equipped items must be unequipped before transfer.")
+    if attuned:
+        raise ActionError("item_attuned", "Attuned items must be unattuned before transfer.")
+    if group == "nested":
+        raise ActionError("item_nested", "Nested legacy records cannot be transferred.")
+    if group == "currency":
+        raise ActionError("item_currency", "Currency-group records cannot be transferred.")
+
+    destination = action["destination"]
+    _validate_transfer_destination(destination_updated, destination)
+    if item["id"] in _all_ids(destination_updated):
+        raise ActionError(
+            "destination_item_id_collision",
+            "Item ID already exists in the destination character's inventory.",
+        )
+
+    item_before = copy.deepcopy(item)
+    item_after = copy.deepcopy(item)
+    if destination["container_id"] is None:
+        item_after.pop("container_id", None)
+    else:
+        item_after["container_id"] = destination["container_id"]
+
+    try:
+        _remove_transfer_record(records, item)
+        _insert_transfer_record(destination_updated, destination["group"], item_after)
+    except (ValueError, KeyError) as exc:
+        raise ActionError("invalid_inventory_state", "Inventory transfer could not be applied safely.") from exc
+
+    try:
+        validated_source = player_inventory.normalize_inventory(source_updated)
+        validated_destination = player_inventory.normalize_inventory(destination_updated)
+    except ValueError as exc:
+        raise ActionError("invalid_inventory_state", "Inventory transfer would create invalid state.") from exc
+
+    source_location = _location(item_before["id"], group, container_id)
+    destination_location = _location(
+        item_after["id"], destination["group"], destination["container_id"],
+    )
+    quantity = _quantity(item_before)
+    details = {
+        "character_ids": [source_character_id, destination_character_id],
+        "source_character_id": source_character_id,
+        "destination_character_id": destination_character_id,
+        "source_owner_before": source_character_id,
+        "destination_owner_after": destination_character_id,
+        "preserved_item_id": item_before["id"],
+        "item_before": item_before,
+        "item_after": copy.deepcopy(item_after),
+        "items_before": [item_before],
+        "items_after": [copy.deepcopy(item_after)],
+        "source_location": source_location,
+        "destination_location": destination_location,
+        "locations_before": [source_location],
+        "locations_after": [destination_location],
+        "quantities_before": {item_before["id"]: quantity},
+        "quantities_after": {item_after["id"]: _quantity(item_after)},
+        "equipment_refs_before": {item_before["id"]: copy.deepcopy(refs)},
+        "equipment_refs_after": {item_after["id"]: []},
+        "attunement_refs_before": {item_before["id"]: attuned},
+        "attunement_refs_after": {item_after["id"]: False},
+        "messages": [
+            f"Transferred {item_before['name']} from {action['character']} "
+            f"to {action['destination_character']}."
+        ],
+    }
+    return validated_source, validated_destination, details
+
+
 def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
     try:
         action = normalize_action(value)
@@ -499,7 +650,7 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                 return prior_result
             if has_prior:
                 error = ActionError("duplicate_request_conflict", "request_id was already used for a different action.")
-                result = common.append_rejection(state, action, hashed_action, error)
+                result = _append_action_rejection(state, action, hashed_action, error)
                 common.atomic_json(common.state_path(directory), state)
                 return result
 
@@ -511,14 +662,47 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                 )
                 if inventory is None:
                     raise ActionError("character_not_tracked", "Character has no validated inventory snapshot or tracked profile.")
-                updated, details = apply_transition(inventory, action, character_id)
+                destination_id = None
+                destination_record = None
+                destination_updated = None
+                if action["operation"] == "transfer_item":
+                    destination_id, destination_record, destination_inventory = common.resolve_character_snapshot(
+                        state, action["campaign"], action["destination_character"],
+                    )
+                    if destination_id == character_id:
+                        raise ActionError("same_character_transfer", "Source and destination characters must differ.")
+                    if action["expected_destination_character_id"] != destination_id:
+                        raise ActionError(
+                            "stale_destination_owner",
+                            "Destination owner no longer matches expected_destination_character_id.",
+                        )
+                    if destination_inventory is None:
+                        raise ActionError(
+                            "destination_character_not_found",
+                            "Destination character has no validated inventory snapshot or tracked profile.",
+                        )
+                    updated, destination_updated, details = apply_transfer_transition(
+                        inventory, destination_inventory, action, character_id, destination_id,
+                    )
+                else:
+                    updated, details = apply_transition(inventory, action, character_id)
                 new_revision = state["revision"] + 1
                 state["revision"] = new_revision
                 state["characters"][character_id] = {
-                    "display_name": action["character"],
+                    "display_name": _snapshot_display_name(
+                        record, action["campaign"], action["character"],
+                    ),
                     "aliases": [] if record is None else record["aliases"],
                     "inventory": updated,
                 }
+                if destination_id is not None and destination_updated is not None:
+                    state["characters"][destination_id] = {
+                        "display_name": _snapshot_display_name(
+                            destination_record, action["campaign"], action["destination_character"],
+                        ),
+                        "aliases": [] if destination_record is None else destination_record["aliases"],
+                        "inventory": destination_updated,
+                    }
                 result = {
                     "status": "applied",
                     "request_id": action["request_id"],
@@ -529,7 +713,7 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                     "request_id": action["request_id"],
                     "revision": new_revision,
                     "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                    "character_ids": [character_id],
+                    "character_ids": details.get("character_ids", [character_id]),
                     "operation": action["operation"],
                     "source_text": action["source_text"],
                     "status": "applied",
@@ -556,11 +740,18 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                         "split_quantity", "new_item_id",
                     ):
                         event[field] = details[field]
+                elif action["operation"] == "transfer_item":
+                    for field in (
+                        "source_character_id", "destination_character_id", "source_owner_before",
+                        "destination_owner_after", "preserved_item_id", "item_before", "item_after",
+                        "source_location", "destination_location",
+                    ):
+                        event[field] = details[field]
                 state["events"].append(event)
                 normalized_state = player_inventory.normalize_inventory_state(state, action["campaign"])
                 common.atomic_json(common.state_path(directory), normalized_state)
             except ActionError as error:
-                result = common.append_rejection(state, action, hashed_action, error)
+                result = _append_action_rejection(state, action, hashed_action, error)
                 common.atomic_json(common.state_path(directory), state)
     except (ActionError, OSError, TypeError, ValueError):
         return {
