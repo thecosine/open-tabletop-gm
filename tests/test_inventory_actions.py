@@ -122,6 +122,8 @@ class InventoryActionTests(unittest.TestCase):
              "condition": "pristine", "compatible_slots": ["off_hand"],
              "default_slot": "off_hand", "requires_attunement": False,
              "attunement_notes": "Not magical"},
+            {"id": "identified-coin-pouch", "name": "Orc Reaver's Mixed Coin Pouch", "quantity": 1,
+             "notes": "Confirmed pouch contents", "container_id": "field-pack"},
             {"id": "echo-one", "name": "Echo Token", "quantity": 1},
             {"id": "echo-two", "name": "Echo Token", "quantity": 1},
         ]
@@ -142,7 +144,7 @@ class InventoryActionTests(unittest.TestCase):
                     "id": "unidentified-tonic", "name": "Unknown Tonic", "quantity": 1,
                     "notes": "Unidentified loot", "container_id": "field-pack",
                 }],
-                "currency": [{"id": "silver-coins", "name": "Silver Coins", "quantity": 10}],
+                "currency": [{"id": "silver-coins", "name": "Silver Coins", "quantity": 10, "unit": "sp"}],
             })
         inventory = {
             "schema_version": 1,
@@ -347,8 +349,333 @@ class InventoryActionTests(unittest.TestCase):
         value.update(updates)
         return value
 
+    def conversion_action(self, item_id: str = "identified-coin-pouch", **updates) -> dict:
+        inventory = self.profile_inventory()
+        value = {
+            "schema_version": 1,
+            "request_id": "inventory-convert-currency-0001",
+            "campaign": self.campaign,
+            "character": "Test Hero",
+            "operation": "convert_item_to_currency",
+            "expected_revision": 0,
+            "source_text": "Convert the identified pouch into 12 sp and 7 cp and remove it.",
+            "item_selector": {"item_id": item_id},
+            "expected_item": self.profile_item(item_id),
+            "expected_location": self.profile_location(item_id),
+            "expected_owner_character_id": "test-hero",
+            "expected_equipment_refs": (
+                [{"slot": slot, **ref} for slot, ref in inventory.get("equipment_state", {}).get("slots", {}).items()
+                 if ref["item_id"] == item_id]
+            ),
+            "expected_attuned": item_id in inventory.get("attuned_item_ids", []),
+            "expected_currency": copy.deepcopy(inventory.get("groups", {}).get("currency", [])),
+            "currency_amounts": {"cp": 7, "sp": 12, "ep": 0, "gp": 0, "pp": 0},
+            "source_disposition": "remove_entire_record",
+        }
+        value.update(updates)
+        return value
+
+    def write_profiles(self):
+        self.profile_path.write_text(json.dumps(self.profile_data), encoding="utf-8")
+
     def execute(self, value: dict) -> dict:
         return self.mod.execute_action(value, refresh=False)
+
+    def test_currency_conversion_payload_is_exact_strict_and_numeric_safe(self):
+        base = self.conversion_action()
+        missing_fields = ("expected_currency", "currency_amounts", "source_disposition")
+        for index, field in enumerate(missing_fields, 1):
+            action = copy.deepcopy(base)
+            action["request_id"] = f"inventory-convert-currency-missing-{index:04d}"
+            action.pop(field)
+            self.assertEqual(self.execute(action)["code"], "invalid_payload")
+            self.reset_state()
+
+        malformed_amounts = [
+            ([], "invalid_currency_amounts"),
+            ({"cp": 1, "sp": 0, "ep": 0, "gp": 0}, "invalid_currency_amounts"),
+            ({"cp": 1, "sp": 0, "ep": 0, "gp": 0, "pp": 0, "mp": 0}, "unsupported_denomination"),
+            ({"cp": -1, "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": 1.5, "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": True, "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": float("nan"), "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": float("inf"), "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": 0, "sp": 0, "ep": 0, "gp": 0, "pp": 0}, "invalid_currency_amounts"),
+            ({"cp": self.mod.MAX_QUANTITY + 1, "sp": 0, "ep": 0, "gp": 0, "pp": 0},
+             "currency_quantity_overflow"),
+        ]
+        for index, (amounts, code) in enumerate(malformed_amounts, 1):
+            action = self.conversion_action(
+                request_id=f"inventory-convert-currency-amount-{index:04d}", currency_amounts=amounts,
+            )
+            with self.subTest(amounts=amounts):
+                self.assertEqual(self.execute(action)["code"], code)
+                if self.state_path().exists():
+                    event = self.state()["events"][-1]
+                    for forbidden in ("expected_item", "expected_currency", "currency_amounts"):
+                        self.assertNotIn(forbidden, event)
+            self.reset_state()
+
+        cases = [
+            ({**base, "unknown": True}, "invalid_payload"),
+            ({**base, "request_id": "inventory-wrong-0001"}, "invalid_payload"),
+            ({**base, "schema_version": True}, "invalid_payload"),
+            ({**base, "schema_version": 1.0}, "invalid_payload"),
+            ({**base, "operation": []}, "invalid_payload"),
+            ({**base, "source_text": "x" * 20000}, "invalid_payload"),
+            ({**base, "source_disposition": "preserve_empty_pouch"}, "unsupported_source_disposition"),
+            ({**base, "item_selector": {"name": "Orc Reaver's Mixed Coin Pouch"}}, "invalid_payload"),
+        ]
+        for index, (action, code) in enumerate(cases, 1):
+            self.reset_state()
+            action["request_id"] = (
+                action["request_id"] if action["request_id"] == "inventory-wrong-0001"
+                else f"inventory-convert-currency-payload-{index:04d}"
+            )
+            self.assertEqual(self.execute(action)["code"], code)
+
+    def test_currency_conversion_success_canonicalizes_additions_and_removes_only_source(self):
+        cases = [
+            ({}, {"cp": 7, "sp": 12, "ep": 0, "gp": 0, "pp": 0}),
+            ({"cp": 4}, {"cp": 7, "sp": 0, "ep": 0, "gp": 0, "pp": 0}),
+            ({"sp": 10}, {"cp": 0, "sp": 12, "ep": 0, "gp": 0, "pp": 0}),
+            ({"cp": 4, "sp": 10, "gp": 2}, {"cp": 7, "sp": 12, "ep": 3, "gp": 0, "pp": 1}),
+        ]
+        for index, (existing, additions) in enumerate(cases, 1):
+            self.reset_state()
+            currency = [
+                {**self.mod.CURRENCY_RECORDS[denomination], "quantity": quantity}
+                for denomination, quantity in existing.items()
+            ]
+            groups = self.profile_inventory()["groups"]
+            if currency:
+                groups["currency"] = currency
+            else:
+                groups.pop("currency", None)
+            self.write_profiles()
+            before_carried = [item["id"] for item in groups["carried"]]
+            source_index = before_carried.index("identified-coin-pouch")
+            action = self.conversion_action(
+                request_id=f"inventory-convert-currency-success-{index:04d}",
+                currency_amounts=additions,
+            )
+            with self.subTest(index=index):
+                self.assertEqual(self.execute(action)["status"], "applied")
+                inventory = self.inventory()
+                carried_ids = [item["id"] for item in inventory["groups"]["carried"]]
+                self.assertNotIn("identified-coin-pouch", carried_ids)
+                self.assertEqual(carried_ids, before_carried[:source_index] + before_carried[source_index + 1:])
+                self.assertIn("field-pack", {record["id"] for record in inventory["groups"]["containers"]})
+                actual = {record["unit"]: record for record in inventory["groups"]["currency"]}
+                expected_quantities = {
+                    denomination: existing.get(denomination, 0) + amount
+                    for denomination, amount in additions.items()
+                    if existing.get(denomination, 0) + amount > 0
+                }
+                self.assertEqual({denomination: record["quantity"] for denomination, record in actual.items()},
+                                 expected_quantities)
+                for denomination, record in actual.items():
+                    self.assertEqual(record, {
+                        **self.mod.CURRENCY_RECORDS[denomination],
+                        "quantity": expected_quantities[denomination],
+                    })
+                self.assertEqual(self.state()["revision"], 1)
+                self.assertEqual(len(self.state()["events"]), 1)
+                self.assertEqual(set(self.state()["characters"]), {"test-hero"})
+
+    def test_currency_conversion_expected_state_and_eligibility_rejections_do_not_seed(self):
+        base = self.conversion_action()
+        cases = [
+            ({"item_selector": {"item_id": "missing"}}, "item_not_owned"),
+            ({"expected_item": {**base["expected_item"], "name": "Changed"}}, "stale_item"),
+            ({"expected_location": {"group": "carried", "container_id": None}}, "stale_location"),
+            ({"expected_owner_character_id": "other-hero"}, "stale_owner"),
+            ({"expected_equipment_refs": [{"slot": "off_hand", "item_id": "identified-coin-pouch"}]},
+             "stale_equipment_state"),
+            ({"expected_attuned": True}, "stale_attunement_state"),
+            ({"expected_revision": 1}, "stale_revision"),
+            ({"expected_currency": []}, "stale_currency_state"),
+        ]
+        source_cases = [
+            ("unidentified-aliased", "item_unidentified"),
+            ("unquantified-hide", "source_not_singleton"),
+            ("unitless-stack", "source_not_singleton"),
+            ("legacy-gem", "item_nested"),
+            ("silver-coins", "item_currency"),
+            ("plain-sword", "item_equipped"),
+            ("amber-amulet", "item_attuned"),
+            ("lamp-oil", "source_not_carried"),
+        ]
+        for item_id, code in source_cases:
+            cases.append(({
+                "item_selector": {"item_id": item_id},
+                "expected_item": self.profile_item(item_id),
+                "expected_location": self.profile_location(item_id),
+                "expected_equipment_refs": (
+                    [{"slot": "main_hand", "item_id": "plain-sword"}] if item_id == "plain-sword" else []
+                ),
+                "expected_attuned": item_id == "amber-amulet",
+            }, code))
+        container = copy.deepcopy(base)
+        container["item_selector"] = {"item_id": "field-pack"}
+        actions = [
+            (self.conversion_action(request_id=f"inventory-convert-currency-reject-{index:04d}", **updates), code)
+            for index, (updates, code) in enumerate(cases, 1)
+        ]
+        actions.append((container, "container_not_supported"))
+        for index, (action, code) in enumerate(actions, 1):
+            self.reset_state()
+            action["request_id"] = f"inventory-convert-currency-source-{index:04d}"
+            with self.subTest(index=index, code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                state = self.state()
+                self.assertEqual(state["revision"], 0)
+                self.assertEqual(state["characters"], {})
+                event = state["events"][-1]
+                for forbidden in (
+                    "expected_item", "expected_currency", "currency_amounts", "source_item_before",
+                    "currency_records_before", "currency_records_after",
+                ):
+                    self.assertNotIn(forbidden, event)
+
+    def test_currency_conversion_source_quantity_and_child_rejections(self):
+        source = next(item for item in self.profile_inventory()["groups"]["carried"]
+                      if item["id"] == "identified-coin-pouch")
+        for index, quantity in enumerate((None, 0, 2, 1.5), 1):
+            self.reset_state()
+            if quantity is None:
+                source.pop("quantity", None)
+            else:
+                source["quantity"] = quantity
+            self.write_profiles()
+            action = self.conversion_action(request_id=f"inventory-convert-currency-quantity-{index:04d}")
+            self.assertEqual(self.execute(action)["code"], "source_not_singleton")
+            source["quantity"] = 1
+
+        self.reset_state()
+        self.write_profiles()
+        original_entries = self.mod._entries
+
+        def entries_with_child(inventory):
+            entries = original_entries(inventory)
+            records = inventory["groups"]["carried"]
+            return [*entries, ({"id": "tracked-child", "name": "Tracked Child", "quantity": 1,
+                                "container_id": "identified-coin-pouch"}, "carried",
+                               "identified-coin-pouch", records)]
+
+        with mock.patch.object(self.mod, "_entries", side_effect=entries_with_child):
+            result = self.execute(self.conversion_action(request_id="inventory-convert-currency-child-0001"))
+        self.assertEqual(result["code"], "source_has_tracked_children")
+        self.assertEqual(self.state()["characters"], {})
+
+    def test_currency_conversion_rejects_noncanonical_duplicate_and_overflow_currency(self):
+        mutations = [
+            ([{"id": "silver-coins", "name": "Old Silver", "quantity": 10, "unit": "sp"}],
+             "noncanonical_currency_state"),
+            ([{"id": "silver-coins", "name": "Silver Coins", "quantity": 10, "unit": "sp"},
+              {"id": "silver-cache", "name": "Silver Coins", "quantity": 2, "unit": "sp"}],
+             "noncanonical_currency_state"),
+            ([{"id": "silver-coins", "name": "Silver Coins", "quantity": self.mod.MAX_QUANTITY,
+               "unit": "sp"}], "currency_quantity_overflow"),
+        ]
+        for index, (currency, code) in enumerate(mutations, 1):
+            self.reset_state()
+            self.profile_inventory()["groups"]["currency"] = currency
+            self.write_profiles()
+            action = self.conversion_action(request_id=f"inventory-convert-currency-state-{index:04d}")
+            with self.subTest(code=code):
+                self.assertEqual(self.execute(action)["code"], code)
+                self.assertEqual(self.state()["characters"], {})
+
+    def test_currency_conversion_audit_is_complete_delta_only_and_replay_safe(self):
+        action = self.conversion_action()
+        with (
+            mock.patch.object(self.mod.common, "atomic_json", wraps=self.mod.common.atomic_json) as atomic,
+            mock.patch.object(self.mod.common, "refresh_display") as refresh,
+        ):
+            first = self.mod.execute_action(action, refresh=True)
+            replay = self.mod.execute_action(copy.deepcopy(action), refresh=True)
+        self.assertEqual(first, replay)
+        self.assertEqual(atomic.call_count, 1)
+        refresh.assert_called_once_with(self.campaign)
+        event = self.state()["events"][-1]
+        required = {
+            "source_item_id", "source_item_before", "source_location_before", "source_disposition",
+            "currency_amounts", "currency_records_before", "currency_records_after", "items_before",
+            "items_after", "locations_before", "locations_after", "quantities_before", "quantities_after",
+            "owner_before", "owner_after", "equipment_refs_before", "equipment_refs_after",
+            "attunement_refs_before", "attunement_refs_after", "result",
+        }
+        self.assertTrue(required.issubset(event))
+        self.assertEqual(event["source_item_before"], action["expected_item"])
+        self.assertEqual(event["source_disposition"], "remove_entire_record")
+        self.assertEqual(event["owner_before"], "test-hero")
+        self.assertIsNone(event["owner_after"])
+        self.assertEqual(event["currency_records_before"], action["expected_currency"])
+        self.assertEqual({item["id"] for item in event["items_after"]}, {"copper-coins", "silver-coins"})
+        self.assertNotIn("inventory", event)
+        self.assertNotIn("plain-sword", json.dumps(event))
+        self.assertEqual(self.state()["revision"], 1)
+        self.assertEqual(len(self.state()["events"]), 1)
+        self.assertEqual(len([item for item in self.inventory()["groups"]["currency"]
+                              if item["id"] == "copper-coins"]), 1)
+
+        conflict = copy.deepcopy(action)
+        conflict["currency_amounts"]["cp"] = 8
+        self.assertEqual(self.execute(conflict)["code"], "duplicate_request_conflict")
+        self.assertEqual(self.state()["revision"], 1)
+
+    def test_currency_conversion_shared_request_namespace_and_rollbacks(self):
+        action = self.conversion_action()
+        self.assertEqual(self.execute(action)["status"], "applied")
+        equipment_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Test Hero", "operation": "equip", "item_selector": {"item_id": "iron-key"},
+            "target_slots": ["off_hand"], "expected_occupants": [], "destination": {"type": "carried"},
+            "expected_revision": 1, "source_text": "Equip the key.",
+        }
+        attunement_action = {
+            "schema_version": 1, "request_id": action["request_id"], "campaign": self.campaign,
+            "character": "Test Hero", "operation": "attune", "item_selector": {"item_id": "amber-amulet"},
+            "expected_attuned_item_ids": ["amber-amulet"], "expected_revision": 1,
+            "source_text": "Attune the amulet.",
+        }
+        inventory_actions = [
+            self.add_action(request_id=action["request_id"], expected_revision=1),
+            self.identify_action(request_id=action["request_id"], expected_revision=1),
+            self.transfer_action(request_id=action["request_id"], expected_revision=1),
+            self.quantity_action(request_id=action["request_id"], expected_revision=1),
+        ]
+        self.assertEqual(self.equipment.execute_action(equipment_action, refresh=False)["code"],
+                         "duplicate_request_conflict")
+        self.assertEqual(self.attunement.execute_action(attunement_action, refresh=False)["code"],
+                         "duplicate_request_conflict")
+        for other in inventory_actions:
+            self.assertEqual(self.execute(other)["code"], "duplicate_request_conflict")
+
+        self.reset_state()
+        original_normalize = self.mod.player_inventory.normalize_inventory
+
+        def reject_result(value):
+            if "copper-coins" in json.dumps(value):
+                raise ValueError("injected")
+            return original_normalize(value)
+
+        with mock.patch.object(self.mod.player_inventory, "normalize_inventory", side_effect=reject_result):
+            failed = self.execute(self.conversion_action(request_id="inventory-convert-currency-inventory-fail"))
+        self.assertEqual(failed["code"], "invalid_inventory_state")
+        self.assertEqual(self.state()["characters"], {})
+
+        self.reset_state()
+        with mock.patch.object(self.mod.player_inventory, "normalize_inventory_state", side_effect=ValueError("injected")):
+            failed = self.execute(self.conversion_action(request_id="inventory-convert-currency-state-fail"))
+        self.assertEqual(failed["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
+
+        with mock.patch.object(self.mod.common, "atomic_json", side_effect=OSError("injected")):
+            failed = self.execute(self.conversion_action(request_id="inventory-convert-currency-write-fail"))
+        self.assertEqual(failed["code"], "persistence_failed")
+        self.assertFalse(self.state_path().exists())
 
     def test_malformed_nonobject_missing_unknown_oversized_and_prefix_reject(self):
         self.assertEqual(self.mod.execute_action("not-an-object", refresh=False)["code"], "invalid_payload")
@@ -1633,13 +1960,23 @@ class InventoryActionTests(unittest.TestCase):
                 self.mod.player_inventory.normalize_inventory(payload)
 
     def test_policy_keeps_inventory_equipment_attunement_and_narration_separate(self):
+        skill = (REPO / "SKILL.md").read_text(encoding="utf-8").casefold()
         branches = (REPO / "SKILL-branches.md").read_text(encoding="utf-8").casefold()
         scripts = (REPO / "SKILL-scripts.md").read_text(encoding="utf-8").casefold()
         startup = (SCRIPTS / "startup.md").read_text(encoding="utf-8").casefold()
-        for text in (branches, scripts, startup):
+        for text in (skill, branches, scripts, startup):
             self.assertIn("inventory_action.py", text)
-            self.assertIn("pick up", text)
             self.assertIn("clarification", text)
+            self.assertIn("convert_item_to_currency", text)
+            self.assertIn("inspect the pouch", text)
+            self.assertIn("all mints", text)
+            self.assertIn("partial conversion", text)
+            self.assertIn("empty-pouch", text)
+        for text in (skill, branches, scripts):
+            self.assertIn("convert this identified pouch into 12 sp and 7 cp", text)
+        for text in (branches, scripts, startup):
+            self.assertIn("identify_item", text)
+            self.assertIn("does not convert currency", text)
         self.assertIn("equipment, attunement, and persistent inventory actions remain separate", branches)
 
 

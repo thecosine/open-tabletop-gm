@@ -26,7 +26,7 @@ import player_inventory  # noqa: E402
 ActionError = common.ActionError
 OPERATIONS = {
     "add_item", "remove_item", "move_item", "consume_item", "split_stack",
-    "transfer_item", "identify_item",
+    "transfer_item", "identify_item", "convert_item_to_currency",
 }
 ORDINARY_GROUPS = {"carried", "consumables", "currency"}
 TRANSFER_DESTINATION_GROUPS = {"carried", "consumables"}
@@ -59,6 +59,9 @@ TRANSFER_FIELDS = EXPECTED_FIELDS | {
     "expected_destination_item_id_absent", "destination",
 }
 IDENTIFY_FIELDS = EXPECTED_FIELDS | {"identified_item"}
+CONVERT_CURRENCY_FIELDS = EXPECTED_FIELDS | {
+    "expected_currency", "currency_amounts", "source_disposition",
+}
 IDENTIFY_IMMUTABLE_FIELDS = {
     "id": "identified_item_id_changed",
     "quantity": "identified_item_quantity_changed",
@@ -70,6 +73,13 @@ IDENTIFY_IMMUTABLE_FIELDS = {
     "default_slot": "identified_item_equipment_changed",
     "requires_attunement": "identified_item_attunement_changed",
     "attunement_notes": "identified_item_attunement_changed",
+}
+CURRENCY_RECORDS = {
+    "cp": {"id": "copper-coins", "name": "Copper Coins", "unit": "cp"},
+    "sp": {"id": "silver-coins", "name": "Silver Coins", "unit": "sp"},
+    "ep": {"id": "electrum-coins", "name": "Electrum Coins", "unit": "ep"},
+    "gp": {"id": "gold-coins", "name": "Gold Coins", "unit": "gp"},
+    "pp": {"id": "platinum-coins", "name": "Platinum Coins", "unit": "pp"},
 }
 
 
@@ -153,6 +163,42 @@ def _action_quantity(value: object, field: str) -> int:
     return value
 
 
+def _normalize_expected_currency(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) > len(CURRENCY_RECORDS):
+        raise ActionError("invalid_payload", "expected_currency must be a bounded complete currency array.")
+    try:
+        return [player_inventory.normalize_item(record) for record in value]
+    except (TypeError, ValueError) as exc:
+        raise ActionError("invalid_payload", "expected_currency contains an invalid item record.") from exc
+
+
+def _normalize_currency_amounts(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        raise ActionError("invalid_currency_amounts", "currency_amounts must be an object.")
+    extra = set(value) - set(CURRENCY_RECORDS)
+    if extra:
+        raise ActionError("unsupported_denomination", "currency_amounts contains an unsupported denomination.")
+    if set(value) != set(CURRENCY_RECORDS):
+        raise ActionError("invalid_currency_amounts", "currency_amounts must contain cp, sp, ep, gp, and pp.")
+    amounts: dict[str, int] = {}
+    for denomination in CURRENCY_RECORDS:
+        amount = value[denomination]
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount < 0:
+            raise ActionError(
+                "invalid_currency_amounts",
+                "Every currency amount must be a non-negative integer.",
+            )
+        if amount > MAX_QUANTITY:
+            raise ActionError(
+                "currency_quantity_overflow",
+                "A currency amount exceeds the maximum supported quantity.",
+            )
+        amounts[denomination] = amount
+    if not any(amounts.values()):
+        raise ActionError("invalid_currency_amounts", "At least one currency amount must be positive.")
+    return amounts
+
+
 def normalize_action(value: object) -> dict[str, Any]:
     try:
         serialized_size = len(json.dumps(value, ensure_ascii=False))
@@ -172,6 +218,7 @@ def normalize_action(value: object) -> dict[str, Any]:
         "split_stack": SPLIT_FIELDS,
         "transfer_item": TRANSFER_FIELDS,
         "identify_item": IDENTIFY_FIELDS,
+        "convert_item_to_currency": CONVERT_CURRENCY_FIELDS,
     }.get(operation)
     if operation_fields is None or set(value) != COMMON_FIELDS | operation_fields:
         raise ActionError("invalid_payload", "Inventory action has missing or unknown fields.")
@@ -185,6 +232,11 @@ def normalize_action(value: object) -> dict[str, Any]:
     request = common.request_id(value["request_id"])
     if not request.startswith("inventory-"):
         raise ActionError("invalid_payload", "Inventory action request_id must begin with inventory-.")
+    if operation == "convert_item_to_currency" and not request.startswith("inventory-convert-currency-"):
+        raise ActionError(
+            "invalid_payload",
+            "Currency conversion request_id must begin with inventory-convert-currency-.",
+        )
     expected_revision = value["expected_revision"]
     if isinstance(expected_revision, bool) or not isinstance(expected_revision, int) or expected_revision < 0:
         raise ActionError("invalid_payload", "expected_revision must be a non-negative integer.")
@@ -241,6 +293,20 @@ def normalize_action(value: object) -> dict[str, Any]:
                 raise ActionError(
                     "invalid_identified_item", "identified_item is not a valid complete item record.",
                 ) from exc
+        elif operation == "convert_item_to_currency":
+            if set(action["item_selector"]) != {"item_id"}:
+                raise ActionError("invalid_payload", "Currency conversion requires an exact stable item_id.")
+            disposition = value["source_disposition"]
+            if disposition != "remove_entire_record":
+                raise ActionError(
+                    "unsupported_source_disposition",
+                    "source_disposition must be remove_entire_record.",
+                )
+            action.update({
+                "expected_currency": _normalize_expected_currency(value["expected_currency"]),
+                "currency_amounts": _normalize_currency_amounts(value["currency_amounts"]),
+                "source_disposition": disposition,
+            })
         else:
             destination = _normalize_location(value["destination"], "destination", destination=True)
             if destination["group"] not in TRANSFER_DESTINATION_GROUPS:
@@ -473,6 +539,63 @@ def _validate_identified_item(before: dict[str, Any], value: object) -> tuple[di
     return identified, changed_fields
 
 
+def _validate_canonical_currency(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    by_denomination: dict[str, dict[str, Any]] = {}
+    for record in records:
+        denomination = next((
+            denomination for denomination, canonical in CURRENCY_RECORDS.items()
+            if record.get("id") == canonical["id"]
+        ), None)
+        if denomination is None:
+            raise ActionError(
+                "noncanonical_currency_state",
+                "The currency group contains a noncanonical denomination record.",
+            )
+        canonical = {**CURRENCY_RECORDS[denomination], "quantity": record.get("quantity")}
+        quantity = record.get("quantity")
+        if (
+            set(record) != set(canonical)
+            or not _exact_equal(record, canonical)
+            or isinstance(quantity, bool)
+            or not isinstance(quantity, int)
+            or not 1 <= quantity <= MAX_QUANTITY
+            or denomination in by_denomination
+        ):
+            raise ActionError(
+                "noncanonical_currency_state",
+                "The currency group contains a noncanonical or duplicate denomination record.",
+            )
+        by_denomination[denomination] = record
+    return by_denomination
+
+
+def _validate_conversion_source(
+    inventory: dict[str, Any], item: dict[str, Any], group: str,
+) -> None:
+    if group == "currency":
+        raise ActionError("item_currency", "A currency record cannot be converted as a pouch.")
+    if group == "nested":
+        raise ActionError("item_nested", "Nested legacy records cannot be converted.")
+    if group != "carried":
+        raise ActionError("source_not_carried", "Currency conversion requires a carried source record.")
+    if item.get("notes") == "Unidentified loot":
+        raise ActionError("item_unidentified", "The source item must be identified before conversion.")
+    quantity = item.get("quantity")
+    if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity != 1:
+        raise ActionError("source_not_singleton", "The source item quantity must be exactly integer one.")
+    if item["id"] in _container_ids(inventory):
+        raise ActionError("container_not_supported", "Tracked containers cannot be converted to currency.")
+    if any(
+        child.get("container_id") == item["id"]
+        for child, _child_group, _container_id, _records in _entries(inventory)
+        if child["id"] != item["id"]
+    ):
+        raise ActionError(
+            "source_has_tracked_children",
+            "A source item with tracked child items cannot be converted.",
+        )
+
+
 def apply_transition(inventory: dict[str, Any], action: dict[str, Any], character_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     updated = copy.deepcopy(inventory)
     operation = action["operation"]
@@ -567,6 +690,51 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             before_locations = [before_location]
             after_locations = [before_location]
             message = f"Identified {before_item['name']} as {identified['name']}."
+        elif operation == "convert_item_to_currency":
+            if attuned:
+                raise ActionError("item_attuned", "Attuned items must be unattuned before conversion.")
+            _validate_conversion_source(updated, item, group)
+            currency_records = updated.get("groups", {}).get("currency", [])
+            if not _exact_equal(action["expected_currency"], currency_records):
+                raise ActionError(
+                    "stale_currency_state",
+                    "The complete currency group no longer matches expected_currency.",
+                )
+            canonical_by_denomination = _validate_canonical_currency(currency_records)
+            currency_before = copy.deepcopy(currency_records)
+            currency_records = updated.setdefault("groups", {}).setdefault("currency", [])
+            changed_before: list[dict[str, Any]] = []
+            changed_after: list[dict[str, Any]] = []
+            records.remove(item)
+            for denomination, amount in action["currency_amounts"].items():
+                if amount == 0:
+                    continue
+                existing = canonical_by_denomination.get(denomination)
+                if existing is None:
+                    created = {**CURRENCY_RECORDS[denomination], "quantity": amount}
+                    currency_records.append(created)
+                    changed_after.append(copy.deepcopy(created))
+                    continue
+                changed_before.append(copy.deepcopy(existing))
+                if existing["quantity"] > MAX_QUANTITY - amount:
+                    raise ActionError(
+                        "currency_quantity_overflow",
+                        f"The {denomination} quantity would exceed the supported maximum.",
+                    )
+                existing["quantity"] += amount
+                changed_after.append(copy.deepcopy(existing))
+            currency_after = copy.deepcopy(currency_records)
+            before_items = [before_item, *changed_before]
+            after_items = changed_after
+            before_locations = [before_location, *[
+                _location(record["id"], "currency", None) for record in changed_before
+            ]]
+            after_locations = [
+                _location(record["id"], "currency", None) for record in changed_after
+            ]
+            message = (
+                f"Converted {item['name']} into canonical currency and removed the source record."
+            )
         else:
             if attuned:
                 raise ActionError("item_attuned", "Attuned items must be unattuned before quantity actions.")
@@ -599,6 +767,8 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
     quantities_before = {item["id"]: _quantity(item) for item in before_items}
     quantities_after = {item["id"]: _quantity(item) for item in after_items}
     if operation == "consume_item" and not after_items:
+        quantities_after[before_items[0]["id"]] = 0
+    if operation == "convert_item_to_currency":
         quantities_after[before_items[0]["id"]] = 0
     equipment_before = {item_id: copy.deepcopy(refs if item_id in item_ids else []) for item_id in item_ids}
     attunement_before = {item_id: attuned for item_id in item_ids}
@@ -642,6 +812,18 @@ def apply_transition(inventory: dict[str, Any], action: dict[str, Any], characte
             "changed_fields": changed_fields,
             "owner_before": character_id,
             "owner_after": character_id,
+        })
+    elif operation == "convert_item_to_currency":
+        details.update({
+            "source_item_id": before_item["id"],
+            "source_item_before": before_item,
+            "source_location_before": before_location,
+            "source_disposition": action["source_disposition"],
+            "currency_amounts": copy.deepcopy(action["currency_amounts"]),
+            "currency_records_before": currency_before,
+            "currency_records_after": currency_after,
+            "owner_before": character_id,
+            "owner_after": None,
         })
     return validated, details
 
@@ -855,6 +1037,13 @@ def execute_action(value: object, *, refresh: bool = True) -> dict[str, Any]:
                         "source_character_id", "destination_character_id", "source_owner_before",
                         "destination_owner_after", "preserved_item_id", "item_before", "item_after",
                         "source_location", "destination_location",
+                    ):
+                        event[field] = details[field]
+                elif action["operation"] == "convert_item_to_currency":
+                    for field in (
+                        "source_item_id", "source_item_before", "source_location_before",
+                        "source_disposition", "currency_amounts", "currency_records_before",
+                        "currency_records_after", "owner_before", "owner_after",
                     ):
                         event[field] = details[field]
                 state["events"].append(event)
