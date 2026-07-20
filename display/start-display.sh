@@ -14,6 +14,10 @@ LOG="$DISPLAY_DIR/app.log"
 PID_FILE="$DISPLAY_DIR/app.pid"
 CERT_SERVER_PID="$DISPLAY_DIR/.cert-server.pid"
 
+if ! DISPLAY_PORT=$(python3 "$DISPLAY_DIR/display_config.py"); then
+  exit 2
+fi
+
 # ── Parse flags ───────────────────────────────────────────────────────────────
 LAN_FLAG=""
 TLS_MODE=false
@@ -84,7 +88,7 @@ $TLS_MODE && APP_ARGS="$APP_ARGS --tls"
 nohup python3 "$DISPLAY_DIR/gm-display-app.py" $APP_ARGS > "$LOG" 2>&1 &
 echo $! > "$PID_FILE"
 
-LOCAL_URL="${SCHEME}://localhost:5001"
+LOCAL_URL="${SCHEME}://localhost:${DISPLAY_PORT}"
 
 # Wait up to 5 s for the server to become ready
 for i in $(seq 1 10); do
@@ -92,7 +96,7 @@ for i in $(seq 1 10); do
   if curl -sk "$LOCAL_URL/ping" > /dev/null 2>&1; then
     echo ""
     echo "Display started — $LOCAL_URL"
-    [[ -n "$LAN_IP" ]] && echo "LAN access:     ${SCHEME}://${LAN_IP}:5001"
+    [[ -n "$LAN_IP" ]] && echo "LAN access:     ${SCHEME}://${LAN_IP}:${DISPLAY_PORT}"
 
     if $TLS_MODE; then
       echo ""
@@ -117,7 +121,7 @@ for i in $(seq 1 10); do
       echo "  Mac (other than this machine):"
       echo "    Open cert.pem → Keychain Access → mark as Always Trust"
       echo ""
-      echo "  Step 2 — open  https://${LAN_IP}:5001  in the device browser."
+      echo "  Step 2 — open  https://${LAN_IP}:${DISPLAY_PORT}  in the device browser."
       echo "  No further warnings after the cert is trusted."
       echo ""
       echo "  The cert server on :8080 runs until the display is stopped."

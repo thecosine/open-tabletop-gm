@@ -64,10 +64,12 @@ import ssl
 import time
 import urllib.request
 
+from display_config import resolve_display_port
+
 _DIR        = pathlib.Path(__file__).parent
 _SCHEME_FILE = _DIR / ".scheme"
 _SCHEME = _SCHEME_FILE.read_text().strip() if _SCHEME_FILE.exists() else "http"
-BASE_URL    = f"{_SCHEME}://localhost:5001"
+BASE_URL    = f"{_SCHEME}://localhost:{resolve_display_port()}"
 FLASK_URL   = f"{BASE_URL}/chunk"
 STATS_URL   = f"{BASE_URL}/stats"
 HEALTH_URL  = f"{BASE_URL}/health"

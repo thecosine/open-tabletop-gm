@@ -22,9 +22,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from display_config import resolve_display_port
+
 DISPLAY_DIR = os.path.dirname(os.path.abspath(__file__))
 CERT_FILE   = os.path.join(DISPLAY_DIR, "cert.pem")
 KEY_FILE    = os.path.join(DISPLAY_DIR, "key.pem")
+DISPLAY_PORT = resolve_display_port()
 
 
 def _lan_ip() -> Optional[str]:
@@ -174,9 +177,9 @@ def main() -> None:
 
 def _print_urls(lan_ip: Optional[str]) -> None:
     print("Access URLs (after restart):")
-    print("  Localhost : https://localhost:5001")
+    print(f"  Localhost : https://localhost:{DISPLAY_PORT}")
     if lan_ip:
-        print(f"  LAN       : https://{lan_ip}:5001")
+        print(f"  LAN       : https://{lan_ip}:{DISPLAY_PORT}")
     print()
     print("Phone/tablet: open the LAN URL, accept the browser security warning")
     print("(one-time — tap Advanced → Proceed).")

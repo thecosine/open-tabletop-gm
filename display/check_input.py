@@ -30,10 +30,13 @@ import ssl
 import sys
 import urllib.request
 
+from display_config import resolve_display_port
+
 _DIR         = pathlib.Path(__file__).parent
 _SCHEME_FILE = _DIR / ".scheme"
 _SCHEME      = _SCHEME_FILE.read_text().strip() if _SCHEME_FILE.exists() else "http"
-DRAIN_URL    = f"{_SCHEME}://localhost:5001/player-input/drain"
+_DISPLAY_PORT = resolve_display_port()
+DRAIN_URL    = f"{_SCHEME}://localhost:{_DISPLAY_PORT}/player-input/drain"
 TOKEN_FILE   = _DIR / ".token"
 QUEUE_FILE   = pathlib.Path(os.environ.get("OTGM_INPUT_QUEUE", _DIR / ".input_queue"))
 TRIGGER_FILE = pathlib.Path(os.environ.get("OTGM_INPUT_TRIGGER", _DIR / ".input_trigger"))
@@ -210,7 +213,7 @@ def _notify_consumed() -> None:
     try:
         token = TOKEN_FILE.read_text().strip() if TOKEN_FILE.exists() else ""
         req = urllib.request.Request(
-            f"{_SCHEME}://localhost:5001/queue/consumed",
+            f"{_SCHEME}://localhost:{_DISPLAY_PORT}/queue/consumed",
             data=b"", method="POST",
             headers={"X-DND-Token": token},
         )
