@@ -1112,6 +1112,23 @@
     text-transform: uppercase;
   }
   .dashboard-stat-value { color: rgba(247,245,238,0.96); font: 15px 'Cinzel', serif; }
+  #dashboard-ability-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: -6px 0 16px;
+  }
+  .dashboard-ability-summary-item {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 5px 8px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(180,140,60,0.14);
+    border-radius: 3px;
+  }
+  .dashboard-ability-summary-name { color: rgba(220,183,91,0.86); font: 8px 'Cinzel', serif; letter-spacing: 1px; }
+  .dashboard-ability-summary-value { color: rgba(247,245,238,0.94); font: 12px 'Cinzel', serif; }
   #dashboard-tabs {
     display: flex;
     flex-wrap: wrap;
@@ -1132,6 +1149,7 @@
     cursor: pointer;
   }
   .dashboard-tab:hover { color: rgba(240,220,170,0.88); }
+  .dashboard-tab:focus-visible { outline: 2px solid #e0bd63; outline-offset: -2px; }
   .dashboard-tab[aria-selected="true"] { color: #f0d27a; border-bottom-color: #c89f45; }
   #dashboard-tab-panel { min-height: 104px; padding-top: 16px; }
   .dashboard-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -4451,6 +4469,7 @@
       <button id="dashboard-full-sheet" type="button">Full sheet</button>
     </div>
     <div id="dashboard-headline-stats" aria-label="Headline character statistics"></div>
+    <div id="dashboard-ability-summary" aria-label="Primary ability scores" hidden></div>
     <div id="dashboard-tabs" role="tablist" aria-label="Character dashboard sections">
       <button class="dashboard-tab" id="dashboard-tab-overview" type="button" role="tab" aria-selected="true" aria-controls="dashboard-tab-panel" data-dashboard-tab="Overview">Overview</button>
       <button class="dashboard-tab" id="dashboard-tab-inventory" type="button" role="tab" aria-selected="false" aria-controls="dashboard-tab-panel" data-dashboard-tab="Inventory">Inventory</button>
@@ -6473,6 +6492,49 @@ function _appendDashboardStat(container, label, value) {
   container.appendChild(stat);
 }
 
+function _dashboardCurrency(p) {
+  const groups = p.inventory && p.inventory.schema_version === 1
+    && p.inventory.groups && typeof p.inventory.groups === 'object'
+    ? p.inventory.groups : {};
+  const currency = Array.isArray(groups.currency) ? groups.currency : [];
+  const summary = currency.map(item => {
+    if (!item || typeof item !== 'object') return '';
+    if (item.quantity != null && item.unit) return `${item.quantity} ${String(item.unit).toUpperCase()}`;
+    if (item.quantity != null && item.name) return `${item.quantity} ${item.name}`;
+    return item.name ? String(item.name) : '';
+  }).filter(Boolean);
+  return summary.join(' · ') || '—';
+}
+
+function _renderDashboardAbilitySummary(container, p) {
+  container.replaceChildren();
+  const manifest = _gmManifest();
+  const gridDef = manifest.sheet && manifest.sheet.stat_grid;
+  const values = gridDef && Array.isArray(gridDef.stats)
+    ? _bind(p, gridDef.bind || 'ability_scores') : null;
+  if (!values || typeof values !== 'object') {
+    container.hidden = true;
+    return;
+  }
+  gridDef.stats.forEach(definition => {
+    if (!(definition.key in values)) return;
+    const raw = values[definition.key];
+    const score = raw && typeof raw === 'object' ? raw.score : raw;
+    const modifier = raw && typeof raw === 'object' ? raw.mod : null;
+    const item = document.createElement('div');
+    item.className = 'dashboard-ability-summary-item';
+    const name = document.createElement('span');
+    name.className = 'dashboard-ability-summary-name';
+    name.textContent = definition.label || String(definition.key).toUpperCase();
+    const value = document.createElement('span');
+    value.className = 'dashboard-ability-summary-value';
+    value.textContent = `${score ?? '—'}${modifier != null ? ` (${_formatSigned(modifier)})` : ''}`;
+    item.append(name, value);
+    container.appendChild(item);
+  });
+  container.hidden = !container.childElementCount;
+}
+
 function _dashboardOverviewCard(label) {
   const card = document.createElement('section');
   card.className = 'dashboard-overview-card';
@@ -7082,6 +7144,8 @@ function _renderSelectedDashboard() {
   const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
   _appendDashboardStat(stats, 'Proficiency', overview.proficiency_bonus != null
     ? _formatSigned(overview.proficiency_bonus) : null);
+  _appendDashboardStat(stats, 'Currency', _dashboardCurrency(p));
+  _renderDashboardAbilitySummary(document.getElementById('dashboard-ability-summary'), p);
   document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
     card.classList.toggle('is-selected', card.dataset.playerName === _dashboardPlayerName);
   });
@@ -7394,6 +7458,19 @@ document.getElementById('dashboard-shell').addEventListener('click', event => {
 });
 document.querySelectorAll('.dashboard-tab').forEach(button => {
   button.addEventListener('click', () => _setDashboardTab(button.dataset.dashboardTab));
+  button.addEventListener('keydown', event => {
+    const tabs = Array.from(document.querySelectorAll('.dashboard-tab'));
+    const index = tabs.indexOf(button);
+    let next = null;
+    if (event.key === 'ArrowRight') next = tabs[(index + 1) % tabs.length];
+    if (event.key === 'ArrowLeft') next = tabs[(index - 1 + tabs.length) % tabs.length];
+    if (event.key === 'Home') next = tabs[0];
+    if (event.key === 'End') next = tabs[tabs.length - 1];
+    if (!next) return;
+    event.preventDefault();
+    _setDashboardTab(next.dataset.dashboardTab);
+    next.focus();
+  });
 });
 document.getElementById('sheet-close').addEventListener('click', closeSheet);
 document.getElementById('sheet-modal').addEventListener('click', e => {
