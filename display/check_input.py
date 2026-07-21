@@ -15,10 +15,10 @@ Fallback path — file read (display not running or unreachable):
   display crash or when running without the companion.
 
 Output format (when non-empty):
-  [CharName]: action text
+  [CharName]: action text (which may span multiple lines)
   [CharName2]: action text
 
-One line per character. Called at the start of each GM turn:
+One entry per character. Called at the start of each GM turn:
   python3 display/check_input.py
 """
 import json
@@ -92,8 +92,8 @@ def _format_entries(entries: list) -> str:
             lines.append(d)
     for entry in entries:
         char = entry.get("character", "Player")
-        text = entry.get("text", "").strip()
-        if text:
+        text = str(entry.get("text", ""))
+        if text.strip():
             lines.append(f"[{char}]: {text}")
     return "\n".join(lines)
 
@@ -115,8 +115,8 @@ def _parse_stage_queue(raw: str) -> list[dict] | None:
             if not isinstance(entry, dict):
                 return None
             char = str(entry.get("character", "Player")).strip()
-            text = str(entry.get("text", "")).strip()
-            if not char or not text:
+            text = str(entry.get("text", ""))
+            if not char or not text.strip():
                 return None
             parsed.append({"character": char, "text": text, "kind": _classify_text(text)})
         return parsed
@@ -222,9 +222,9 @@ def _notify_consumed() -> None:
         pass
 
 
-# The installed Stage/Ready frontend writes plain text to .input_queue, while
-# the legacy direct-submit route uses the HTTP JSON drain below. Autorun uses
-# peek-json followed by consume-digest so display and handoff can succeed first.
+# The Stage/Ready frontend writes structured JSON to .input_queue. The legacy
+# direct-submit route uses the HTTP JSON drain below. Autorun uses peek-json
+# followed by consume-digest so display and handoff can succeed first.
 if "--peek-json" in sys.argv[1:]:
     snapshot = _stage_snapshot()
     if snapshot is None:
