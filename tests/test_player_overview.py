@@ -359,6 +359,28 @@ class OverviewFrontendContractTests(unittest.TestCase):
         ):
             self.assertIn(token, self.source)
 
+    def test_header_currency_and_abilities_use_current_projections(self):
+        currency = self.source.split("function _dashboardCurrency(p)", 1)[1].split(
+            "function _renderDashboardAbilitySummary", 1
+        )[0]
+        abilities = self.source.split("function _renderDashboardAbilitySummary", 1)[1].split(
+            "function _dashboardOverviewCard", 1
+        )[0]
+        self.assertIn("p.inventory.schema_version === 1", currency)
+        self.assertIn("groups.currency", currency)
+        self.assertNotIn("p.sheet.currency", currency)
+        for token in ("_gmManifest()", "manifest.sheet.stat_grid", "_bind(p, gridDef.bind"):
+            self.assertIn(token, abilities)
+
+    def test_tabs_support_semantics_keyboard_navigation_and_visible_focus(self):
+        for token in (
+            'role="tablist"', 'role="tab"', 'role="tabpanel"',
+            "button.setAttribute('aria-selected'", "event.key === 'ArrowLeft'",
+            "event.key === 'ArrowRight'", "event.key === 'Home'", "event.key === 'End'",
+            ".dashboard-tab:focus-visible",
+        ):
+            self.assertIn(token, self.source)
+
     def test_ability_grid_uses_manifest_and_explicit_saves(self):
         source = self.source.split("function _renderOverviewAbilities", 1)[1].split(
             "function _renderOverviewSkills", 1

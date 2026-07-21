@@ -86,12 +86,14 @@ import time
 import urllib.request
 
 from portrait_paths import normalize_player_records
+from display_config import resolve_display_port
 
 _DISPLAY_DIR = os.path.dirname(os.path.abspath(__file__))
 _SCHEME_FILE = os.path.join(_DISPLAY_DIR, ".scheme")
 _SCHEME = open(_SCHEME_FILE).read().strip() if os.path.exists(_SCHEME_FILE) else "http"
-FLASK_URL  = f"{_SCHEME}://localhost:5001/stats"
-QUEST_REFRESH_URL = f"{_SCHEME}://localhost:5001/quests/refresh"
+_DISPLAY_PORT = resolve_display_port()
+FLASK_URL  = f"{_SCHEME}://localhost:{_DISPLAY_PORT}/stats"
+QUEST_REFRESH_URL = f"{_SCHEME}://localhost:{_DISPLAY_PORT}/quests/refresh"
 TOKEN_FILE = os.path.join(_DISPLAY_DIR, ".token")
 TIMEOUT    = 2.0
 

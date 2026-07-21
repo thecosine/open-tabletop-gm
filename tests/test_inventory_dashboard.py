@@ -28,19 +28,19 @@ def _load_module(path: pathlib.Path, name: str):
     return module
 
 
-def _digest(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _runtime_snapshot(path: pathlib.Path) -> tuple[bool, str | None]:
+    return path.exists(), hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
 class InventoryProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.inventory = _load_module(DISPLAY / "player_inventory.py", "player_inventory_under_test")
-        cls.stats_hash = _digest(STATS)
+        cls.stats_snapshot = _runtime_snapshot(STATS)
 
     @classmethod
     def tearDownClass(cls):
-        assert _digest(STATS) == cls.stats_hash
+        assert _runtime_snapshot(STATS) == cls.stats_snapshot
 
     def setUp(self):
         self.inventory._PROFILE_PATH = PROFILE
@@ -261,12 +261,12 @@ class InventoryProjectionTests(unittest.TestCase):
 class InventoryDeliveryIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.stats_hash = _digest(STATS)
+        cls.stats_snapshot = _runtime_snapshot(STATS)
         cls.app = _load_module(DISPLAY / "gm-display-app.py", "inventory_display_app")
 
     @classmethod
     def tearDownClass(cls):
-        assert _digest(STATS) == cls.stats_hash
+        assert _runtime_snapshot(STATS) == cls.stats_snapshot
 
     def test_browser_projection_is_ephemeral_and_preserves_legacy_sheet(self):
         live = {"players": [{

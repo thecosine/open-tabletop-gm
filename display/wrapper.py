@@ -52,6 +52,8 @@ import tty
 import ssl
 import urllib.request
 
+from display_config import resolve_display_port
+
 _DIR           = pathlib.Path(__file__).parent
 TRIGGER_FILE   = str(_DIR / ".input_trigger")
 QUEUE_FILE     = str(_DIR / ".input_queue")
@@ -59,7 +61,7 @@ STATS_FILE     = str(_DIR / "stats.json")
 CAMP_FILE      = str(_DIR / ".campaign")
 AUDIT_LOG      = str(_DIR / "input_log.json")
 TOKEN_FILE     = str(_DIR / ".token")
-DISPLAY_URL    = "https://127.0.0.1:5001"
+DISPLAY_URL    = f"https://127.0.0.1:{resolve_display_port()}"
 
 # Self-signed cert — skip verification for localhost
 _SSL_CTX = ssl.create_default_context()

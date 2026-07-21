@@ -83,6 +83,7 @@ from people_cache import (
 from portrait_paths import normalize_player_records as _normalize_player_records
 from player_overview import project_players as _project_overview_players
 from player_inventory import project_players as _project_inventory_players
+from display_config import resolve_display_port as _resolve_display_port
 
 # TTS module — degrades silently if Gemini API key not configured.
 # See docs/SKILL-tts.md for setup.
@@ -2937,6 +2938,12 @@ def stream():
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    try:
+        port = _resolve_display_port()
+    except ValueError as exc:
+        print(f"GM Display configuration error: {exc}", file=sys.stderr)
+        raise SystemExit(2)
+
     # Wire audio SFX broadcast now that _broadcast is defined
     if _audio:
         _audio.set_broadcast(_broadcast)
@@ -2957,13 +2964,13 @@ if __name__ == "__main__":
         pass
 
     if _LAN_MODE:
-        print(f"GM Display — LAN mode (0.0.0.0:5001) [{scheme.upper()}]")
-        print(f"  Local:  {scheme}://localhost:5001")
+        print(f"GM Display — LAN mode (0.0.0.0:{port}) [{scheme.upper()}]")
+        print(f"  Local:  {scheme}://localhost:{port}")
         print("  Token stored at:", TOKEN_FILE)
         print("  POST endpoints require X-DND-Token header (send.py/push_stats.py handle this automatically)")
         print()
     else:
-        print(f"GM Display — Flask server starting on {scheme}://localhost:5001")
-        print(f"Open {scheme}://localhost:5001 in your browser, then Chromecast the tab.")
+        print(f"GM Display — Flask server starting on {scheme}://localhost:{port}")
+        print(f"Open {scheme}://localhost:{port} in your browser, then Chromecast the tab.")
         print()
-    app.run(host=host, port=5001, threaded=True, debug=False, ssl_context=ssl_ctx)
+    app.run(host=host, port=port, threaded=True, debug=False, ssl_context=ssl_ctx)

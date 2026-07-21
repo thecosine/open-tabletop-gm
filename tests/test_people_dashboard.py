@@ -199,16 +199,11 @@ class PeopleProjectionTests(unittest.TestCase):
             [("Mythlon", "Warmly grateful."), ("Second Hero", "Warmly grateful.")],
         )
 
-    def test_active_mythlon_projection_has_expected_coverage_and_no_assigned_portraits(self):
-        live = self.people.build_snapshot(
-            REPO / "campaigns" / "mythlon-chronicles",
-            "mythlon-chronicles",
-            ["Mythlon Bladesinger", "Sassafras Silverleaf"],
-        )
+    def test_fixture_projection_has_expected_coverage_and_no_assigned_portraits(self):
+        live = self._snapshot()
         self.assertEqual(
             [person["name"] for person in live["people"]],
-            ["Bren Hollow", "Hesta Coalvein", "Keira Thorne", "Mara Fenwick",
-             "Tomas Vale", "Tymora", "Veyra Holt"],
+            ["Alpha Known", "Beta Linked", "Sparse Known"],
         )
         self.assertTrue(all("portrait" not in person for person in live["people"]))
 
