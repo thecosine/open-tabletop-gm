@@ -73,6 +73,26 @@ class ComposerMarkupTests(unittest.TestCase):
         self.assertIn('id="input-character-count"', self.source)
         self.assertIn('aria-describedby="input-shortcut input-character-count input-error"', self.textarea)
 
+    def test_action_feed_preserves_whitespace_and_wraps_without_clipping(self):
+        rule = re.search(r"\.action-block p\s*\{(.*?)\}", self.source, re.DOTALL).group(1)
+        self.assertIn("min-width: 0", rule)
+        self.assertIn("white-space: pre-wrap", rule)
+        self.assertIn("overflow-wrap: anywhere", rule)
+        for forbidden in ("line-clamp", "max-height", "overflow: hidden", "text-overflow"):
+            self.assertNotIn(forbidden, rule)
+
+    def test_action_renderer_uses_the_complete_action_field(self):
+        renderer = re.search(
+            r"function renderActionBlock\(.*?\n\}", self.source, re.DOTALL
+        ).group(0)
+        self.assertIn("p.textContent = cleaned", renderer)
+        self.assertNotRegex(renderer, r"\.(?:slice|substring|substr)\s*\(")
+        self.assertIn("renderActionBlock(payload.action, payload.text)", self.source)
+        self.assertIn("renderActionBlock(item.action, item.text, true)", self.source)
+
+    def test_standard_narration_dispatch_remains_intact(self):
+        self.assertIn("handleIncomingText(payload.text)", self.source)
+
 
 class StagingTransportTests(unittest.TestCase):
     @classmethod
@@ -152,6 +172,47 @@ class StagingTransportTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 204)
         self.assertEqual(self.app._input_queue[-1]["text"], text)
+
+    def test_long_multiline_action_reaches_display_payload_unsliced(self):
+        text = (
+            "Opening line.\n\n"
+            + ("Unicode route: café → ruins. " * 300)
+            + "Final sentence."
+        )
+        with (
+            mock.patch.object(self.app, "_persist_log"),
+            mock.patch.object(self.app, "_persist_tail"),
+            mock.patch.object(self.app, "_broadcast") as broadcast,
+        ):
+            response = self.client.post(
+                "/chunk", json={"action": "Player Action", "text": text}
+            )
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            broadcast.call_args.args[0],
+            {"action": "Player Action", "text": text},
+        )
+
+
+class DisplaySendTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.send = _load_module(DISPLAY / "send.py", "party_input_send")
+
+    def test_player_action_bypasses_narration_chunking(self):
+        text = "First line\n\n" + ("long action text " * 400)
+        self.assertGreater(len(text), self.send.CHUNK_LIMIT)
+        self.assertGreater(len(self.send._split_paragraphs(text)), 1)
+        self.assertEqual(
+            self.send._chunks_for_channel(text, is_action=True, is_sideband=False),
+            [text],
+        )
+
+    def test_existing_narration_chunker_remains_intact(self):
+        text = "n" * (self.send.CHUNK_LIMIT + 25)
+        chunks = self.send._split_paragraphs(text)
+        self.assertEqual("".join(chunks), text)
+        self.assertTrue(all(len(chunk) <= self.send.CHUNK_LIMIT for chunk in chunks))
 
 
 class WrapperMultilineTests(unittest.TestCase):
