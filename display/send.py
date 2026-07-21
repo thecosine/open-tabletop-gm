@@ -240,6 +240,15 @@ def _split_paragraphs(text: str, limit: int = CHUNK_LIMIT) -> list:
     return chunks
 
 
+def _chunks_for_channel(text: str, *, is_action: bool, is_sideband: bool) -> list:
+    """Keep atomic feed channels whole; chunk only ordinary narration."""
+    if is_action:
+        return [text]
+    if is_sideband:
+        return [text.strip()]
+    return _split_paragraphs(text)
+
+
 def _build_stats_payload(args) -> "dict | None":
     """Build a push_stats-compatible payload from --stat-* flags."""
     players: "dict[str, dict]" = {}
@@ -691,7 +700,9 @@ def main() -> None:
         # Sideband exchanges are atomic: preserve the exact question/answer as
         # one replay entry rather than splitting paragraphs into narration chunks.
         is_sideband = args.player_ooc or args.gm_ooc or args.player_meta or args.gm_meta
-        chunks = [text.strip()] if is_sideband else _split_paragraphs(text)
+        chunks = _chunks_for_channel(
+            text, is_action=bool(args.action), is_sideband=bool(is_sideband)
+        )
         for chunk in chunks:
             payload = {"text": chunk}
             if args.player_ooc:
