@@ -26,12 +26,11 @@ internal data structures, and UI chrome onto the display.
 
 Security model (defence in depth):
   - Session gate: injection rejected if no active campaign file
-  - Structural validation: every line must match [KnownCharacter]: text
+  - Structural validation: every entry must contain a known character and text
   - Character allowlist: name must be in loaded party stats
-  - Printable ASCII only: all control chars and escape sequences stripped
-  - Shell metacharacter strip: $ ` \\ ; | & > < ( ) [ ] { } !
-  - Per-line cap: 500 chars of action text
-  - Total payload cap: 1500 chars
+  - Control characters and escape sequences are rejected
+  - Per-action cap: 20,000 chars, matching the browser's visible limit
+  - Total payload cap: 160,000 chars
   - Audit log: every injection written to input_log.json with timestamp
   - Nothing is echoed back to attacker on rejection — silent drop
 """
@@ -120,13 +119,12 @@ _PRINTABLE    = re.compile(
     "＀-￯"             # Halfwidth / Fullwidth
     "]"
 )
-_SHELL_CHARS  = re.compile(r'[$`\\;|&><()\[\]{}!]')  # no shell metacharacters
 _CHAR_NAME_RE = re.compile(r"^\w[\w '\-]{0,48}\w$|^\w{1,2}$", re.UNICODE)
-_ACTION_LINE  = re.compile(r"^\[([^\]]{1,50})\]:\s*(.{1,500})$")
+_ACTION_LINE  = re.compile(r"^\[([^\]]{1,50})\]:\s*(.+)$")
 
-_MAX_LINES    = 8     # sanity cap — no party this large exists
-_MAX_LINE_LEN = 560   # [Name]: + 500 chars + slack
-_MAX_TOTAL    = 1500  # total payload cap
+_MAX_ENTRIES      = 8
+_MAX_ACTION_CHARS = 20_000
+_MAX_TOTAL        = _MAX_ENTRIES * _MAX_ACTION_CHARS
 
 
 def _known_chars() -> set:
@@ -143,30 +141,37 @@ def _sanitize(raw: str) -> str | None:
     """
     Validate and sanitize a trigger payload.
 
-    Returns the sanitized string ready to inject, or None (silent reject).
-    A single failing line rejects the *entire* payload — no partial injection.
+    Returns validated entries as JSON, or None (silent reject). A single failing
+    entry rejects the entire payload, so input is never partially truncated.
     """
     # Session gate — no active campaign, no injection
     if not os.path.exists(CAMP_FILE):
         return None
 
-    lines = [l.strip() for l in raw.strip().split("\n") if l.strip()]
-    if not lines or len(lines) > _MAX_LINES:
+    try:
+        entries = json.loads(raw)
+    except json.JSONDecodeError:
+        entries = []
+        for line in raw.splitlines():
+            if not line.strip():
+                continue
+            match = _ACTION_LINE.fullmatch(line)
+            if not match:
+                return None
+            entries.append({"character": match.group(1), "text": match.group(2)})
+
+    if not isinstance(entries, list) or not entries or len(entries) > _MAX_ENTRIES:
         return None
 
     known = _known_chars()
-    out   = []
+    out = []
+    total_chars = 0
 
-    for line in lines:
-        if len(line) > _MAX_LINE_LEN:
+    for entry in entries:
+        if not isinstance(entry, dict):
             return None
-
-        m = _ACTION_LINE.match(line)
-        if not m:
-            return None  # structural violation — reject all
-
-        char_name = m.group(1).strip()
-        action    = m.group(2).strip()
+        char_name = str(entry.get("character", "")).strip()
+        action = str(entry.get("text", ""))
 
         if not _CHAR_NAME_RE.match(char_name):
             return None
@@ -174,19 +179,16 @@ def _sanitize(raw: str) -> str | None:
         if known and char_name not in known and char_name != "Everybody":
             return None
 
-        action = _SHELL_CHARS.sub("", action)
-        action = _PRINTABLE.sub("", action)[:500].strip()
-
-        if not action:
+        has_control = any(char != "\n" and not char.isprintable() for char in action)
+        if not action.strip() or len(action) > _MAX_ACTION_CHARS or has_control:
             return None
 
-        out.append(f"[{char_name}]: {action}")
+        total_chars += len(action)
+        if total_chars > _MAX_TOTAL:
+            return None
+        out.append({"character": char_name, "text": action})
 
-    if not out:
-        return None
-
-    result = "\n".join(out)
-    return result if len(result) <= _MAX_TOTAL else None
+    return json.dumps(out, ensure_ascii=False)
 
 
 def _audit(text: str) -> None:
@@ -206,20 +208,19 @@ def _audit(text: str) -> None:
 
 
 def _format_injection(sanitized: str) -> str:
-    """Frame contiguous action/OOC/META lines without changing their order."""
+    """Frame contiguous action/OOC/META entries without changing their text."""
     blocks: list[tuple[str, list[str]]] = []
-    for line in sanitized.splitlines():
-        match = _ACTION_LINE.match(line)
-        text = match.group(2).strip() if match else ""
-        if re.match(r"^OOC:\s*", text, re.IGNORECASE):
+    for entry in json.loads(sanitized):
+        text = entry["text"]
+        if re.match(r"^\s*OOC:\s*", text, re.IGNORECASE):
             kind = "ooc"
-        elif re.match(r"^META:\s*", text, re.IGNORECASE):
+        elif re.match(r"^\s*META:\s*", text, re.IGNORECASE):
             kind = "meta"
         else:
             kind = "action"
         if not blocks or blocks[-1][0] != kind:
             blocks.append((kind, []))
-        blocks[-1][1].append(line)
+        blocks[-1][1].append(f'[{entry["character"]}]: {text}')
 
     headers = {
         "action": "[PLAYER ACTION — in-game only]",

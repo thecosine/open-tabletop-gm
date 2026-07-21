@@ -221,13 +221,12 @@ _PRINTABLE    = re.compile(
 _SHELL_CHARS  = re.compile(r'[$`\\;|&><()\[\]{}!]')
 # Unicode \w covers letters from all scripts above.
 _CHAR_NAME_RE = re.compile(r"^\w[\w '\-]{0,48}\w$|^\w{1,2}$", re.UNICODE)
+MAX_PLAYER_INPUT_CHARS = 20_000
 
 
 def _sanitize_input(text: str) -> str:
-    """Strip control chars and shell metacharacters from player input text."""
-    text = _SHELL_CHARS.sub("", text)
-    text = _PRINTABLE.sub("", text)
-    return text[:500].strip()
+    """Strip unsupported control characters while preserving line breaks."""
+    return "".join(char for char in text if char == "\n" or char.isprintable())
 
 
 def _char_ok(name: str, known: set) -> bool:
@@ -380,13 +379,15 @@ def _check_auto_trigger() -> None:
         if not (all_ready and enough):
             return
         char_names = list(_staged.keys())
-        lines      = [f'[{c}]: {e["text"]}' for c, e in _staged.items()]
-        content    = "\n".join(lines)
+        entries = [
+            {"character": character, "text": entry["text"]}
+            for character, entry in _staged.items()
+        ]
         _staged.clear()
 
     try:
-        with open(QUEUE_FILE, "w") as f:
-            f.write(content)
+        with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False)
     except Exception:
         char_names = []
 
@@ -2302,12 +2303,13 @@ def player_input():
     import time
     data = request.get_json(force=True, silent=True) or {}
     character = str(data.get("character", "Party"))[:50]
-    text = str(data.get("text", ""))[:500]
+    raw_text = str(data.get("text", ""))
     hold = bool(data.get("hold", False))
 
-    # Strip shell metacharacters — input is player dialogue/action, not commands
-    text = re.sub(r"[`\\$]", "", text).strip()
-    if not text:
+    if len(raw_text) > MAX_PLAYER_INPUT_CHARS:
+        return jsonify({"error": f"Action exceeds {MAX_PLAYER_INPUT_CHARS:,} characters"}), 413
+    text = _sanitize_input(raw_text)
+    if not text.strip():
         return "empty", 400
 
     entry = {
@@ -2640,9 +2642,13 @@ def stage_input():
 
     data      = request.get_json(force=True, silent=True) or {}
     character = str(data.get("character", ""))[:50].strip()
-    text      = _sanitize_input(str(data.get("text", "")))
+    raw_text  = str(data.get("text", ""))
 
-    if not character or not text:
+    if len(raw_text) > MAX_PLAYER_INPUT_CHARS:
+        return jsonify({"error": f"Action exceeds {MAX_PLAYER_INPUT_CHARS:,} characters"}), 413
+    text = _sanitize_input(raw_text)
+
+    if not character or not text.strip():
         return "Bad Request", 400
 
     with _stats_lock:

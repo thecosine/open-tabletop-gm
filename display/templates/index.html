@@ -2180,6 +2180,8 @@
   #input-body {
     padding: 0 14px 14px;
     display: flex; flex-direction: column; gap: 9px;
+    max-height: calc(100vh - 100px);
+    max-height: calc(100dvh - 100px); overflow-y: auto;
   }
   #input-panel.collapsed #input-body { display: none; }
   #char-tabs { display: flex; gap: 5px; flex-wrap: wrap; }
@@ -2201,13 +2203,25 @@
     width: 100%; box-sizing: border-box;
     background: rgba(8,5,2,0.85); border: 1px solid rgba(180,140,60,0.18);
     border-radius: 3px; color: rgba(220,200,160,0.9);
-    font-family: 'IM Fell English', serif; font-size: 13px;
-    padding: 8px 10px; resize: none; outline: none;
+    font-family: 'IM Fell English', serif; font-size: 13px; line-height: 1.45;
+    min-height: 92px; max-height: min(38vh, 280px);
+    padding: 8px 10px; resize: none; outline: none; overflow-y: hidden;
     transition: border-color 0.15s ease;
   }
   #player-input-text:focus { border-color: rgba(180,140,60,0.45); }
   #player-input-text::placeholder { color: rgba(180,140,60,0.28); }
-  #input-footer { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+  #player-input-label {
+    font-family: 'Cinzel', serif; font-size: 8px; letter-spacing: 1.5px;
+    color: rgba(200,165,80,0.78); text-transform: uppercase;
+  }
+  #input-guidance {
+    display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+    color: rgba(180,140,60,0.52); font: 10px/1.35 ui-monospace, monospace;
+  }
+  #input-character-count { white-space: nowrap; }
+  #input-character-count.over-limit, #input-error { color: rgba(225,115,85,0.95); }
+  #input-error { min-height: 1.35em; font: 10px/1.35 ui-monospace, monospace; }
+  #input-footer { display: flex; align-items: center; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
   #skip-turn-btn {
     font-family: 'Cinzel', serif; font-size: 8px;
     letter-spacing: 1.8px; text-transform: uppercase;
@@ -2251,7 +2265,7 @@
   }
   .staged-text {
     font-family: 'IM Fell English', serif; font-size: 11.5px;
-    color: rgba(200,175,120,0.82); word-break: break-word;
+    color: rgba(200,175,120,0.82); word-break: break-word; white-space: pre-wrap;
   }
   .staged-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-top: 2px; }
   .ready-btn {
@@ -2778,8 +2792,10 @@
 
   /* Move tab: let the action textarea actually use the screen. */
   body.input-only #input-body[data-active-tab="move"] #player-input-text {
-    flex: 1 1 auto;
-    min-height: 160px;
+    flex: 0 1 auto;
+    width: calc(100% - 24px);
+    min-height: 128px;
+    max-height: min(45dvh, 320px);
     font-size: 16px !important;
     padding: 14px;
     margin: 10px 12px;
@@ -4339,8 +4355,15 @@
     <div id="char-tabs" data-tab-section="move">
       <button class="char-tab active" data-char="Everybody">Everybody</button>
     </div>
-    <textarea id="player-input-text" rows="2" placeholder="Enter action or dialogue…" maxlength="500"
+    <label id="player-input-label" for="player-input-text" data-tab-section="move">Action or dialogue</label>
+    <textarea id="player-input-text" rows="4" placeholder="Enter action or dialogue…"
+              aria-describedby="input-shortcut input-character-count input-error"
               data-tab-section="move"></textarea>
+    <div id="input-guidance" data-tab-section="move">
+      <span id="input-shortcut">Ctrl/Cmd+Enter stages · Shift+Enter adds a line</span>
+      <span id="input-character-count" aria-live="polite">0 / 20,000</span>
+    </div>
+    <div id="input-error" role="status" aria-live="polite" data-tab-section="move"></div>
     <div id="input-footer" data-tab-section="move">
       <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
       <button id="stage-btn">Stage</button>
@@ -8590,6 +8613,9 @@ const _stageBtn        = document.getElementById('stage-btn');
 const _skipTurnBtn     = document.getElementById('skip-turn-btn');
 const _stagedQueueEl   = document.getElementById('staged-queue');
 const _waitingEl       = document.getElementById('waiting-indicator');
+const _inputCount      = document.getElementById('input-character-count');
+const _inputError      = document.getElementById('input-error');
+const _MAX_INPUT_CHARS = 20000;
 
 let _selectedChar     = 'Everybody';
 let _stagedData       = {};   // {char: {text, ready, timestamp}} — mirror of server state
@@ -8784,9 +8810,36 @@ function _handleStagedInputs(data) {
 }
 
 // ── Stage an action ───────────────────────────────────────────────
+function _resizeInputComposer() {
+  _inputText.style.height = 'auto';
+  const styles = getComputedStyle(_inputText);
+  const minHeight = parseFloat(styles.minHeight) || 0;
+  const maxHeight = parseFloat(styles.maxHeight) || 280;
+  const nextHeight = Math.max(minHeight, Math.min(_inputText.scrollHeight, maxHeight));
+  _inputText.style.height = `${nextHeight}px`;
+  _inputText.style.overflowY = _inputText.scrollHeight > maxHeight ? 'auto' : 'hidden';
+
+  const length = _inputText.value.length;
+  const overLimit = length > _MAX_INPUT_CHARS;
+  _inputCount.textContent = `${length.toLocaleString()} / ${_MAX_INPUT_CHARS.toLocaleString()}`;
+  _inputCount.classList.toggle('over-limit', overLimit);
+  if (overLimit) _inputError.textContent = `Action is ${length - _MAX_INPUT_CHARS} characters over the limit.`;
+  else if (_inputError.dataset.validation === 'length') _inputError.textContent = '';
+  _inputError.dataset.validation = overLimit ? 'length' : '';
+}
+
 async function _stageAction() {
-  const text = _inputText.value.trim();
-  if (!text) return;
+  const text = _inputText.value;
+  if (!text.trim()) {
+    _inputText.focus();
+    return;
+  }
+  if (text.length > _MAX_INPUT_CHARS) {
+    _inputError.textContent = `Action is ${text.length - _MAX_INPUT_CHARS} characters over the limit.`;
+    _inputError.dataset.validation = 'length';
+    _inputText.focus();
+    return;
+  }
   _stageBtn.disabled = true;
   _stageBtn.textContent = '…';
 
@@ -8810,12 +8863,15 @@ async function _stageAction() {
         localStorage.setItem('dnd_awaiting_approval', _deviceId);
         _stageBtn.disabled = false;
         _stageBtn.textContent = 'Awaiting approval…';
+        _inputText.focus({ preventScroll: true });
         return;  // leave text in box; auto-retry once approved via _onDeviceApproved
       }
       if (res.ok) {
         localStorage.removeItem('dnd_staged_input');
         localStorage.removeItem('dnd_awaiting_approval');
         _inputText.value = '';
+        _resizeInputComposer();
+        _inputText.focus({ preventScroll: true });
         _sent = true;
         break;
       }
@@ -8838,6 +8894,7 @@ async function _stageAction() {
     _stageBtn.textContent = _lastStatus
       ? `Send failed (${_lastStatus}) — tap to retry`
       : 'Send failed — tap to retry';
+    _inputText.focus({ preventScroll: true });
   }
 }
 
@@ -8876,10 +8933,13 @@ async function _skipTurn(char) {
 
 _stageBtn.addEventListener('click', _stageAction);
 _skipTurnBtn.addEventListener('click', () => _skipTurn(_selectedChar));
+_inputText.addEventListener('input', _resizeInputComposer);
+window.addEventListener('resize', _resizeInputComposer);
 
 // Ctrl/Cmd+Enter stages from textarea
 _inputText.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+  if (e.key === 'Enter' && e.shiftKey) return;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     _stageAction();
   }
@@ -8929,6 +8989,7 @@ _buildCharTabs([]);
     }
     if (cached.text && !_inputText.value.trim()) {
       _inputText.value = cached.text;
+      _resizeInputComposer();
     }
     // If we were awaiting approval for this device, restore the button state;
     // the SSE device_request replay will confirm and keep it, or clear it if approved.
@@ -8941,6 +9002,7 @@ _buildCharTabs([]);
     localStorage.removeItem('dnd_awaiting_approval');
   }
 })();
+_resizeInputComposer();
 
 // ═══════════════════════════════════════════════════════════════════
 // DEVICE APPROVAL
@@ -8960,7 +9022,10 @@ function _showDeviceRequest(dev) {
     try {
       const cached = JSON.parse(localStorage.getItem('dnd_staged_input') || 'null');
       if (cached && cached.text && Date.now() - cached.ts < 10 * 60 * 1000) {
-        if (!_inputText.value.trim()) _inputText.value = cached.text;
+        if (!_inputText.value.trim()) {
+          _inputText.value = cached.text;
+          _resizeInputComposer();
+        }
       }
     } catch (_) {}
   }
