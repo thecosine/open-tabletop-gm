@@ -6504,6 +6504,14 @@ function _renderDashboardIdentity(container, p) {
   }
 }
 
+function _renderCharacterHeader(p) {
+  document.getElementById('dashboard-portrait-slot').replaceChildren(
+    _makePlayerPortrait(p, 'dashboard-portrait'),
+  );
+  document.getElementById('dashboard-name').textContent = p.name || '—';
+  _renderDashboardIdentity(document.getElementById('dashboard-identity'), p);
+}
+
 function _appendDashboardStat(container, label, value) {
   if (value == null || value === '') return;
   const stat = document.createElement('div');
@@ -6530,6 +6538,36 @@ function _dashboardCurrency(p) {
     return item.name ? String(item.name) : '';
   }).filter(Boolean);
   return summary.join(' · ') || '—';
+}
+
+function _renderCharacterInventorySummary(container, p) {
+  _appendDashboardStat(container, 'Currency', _dashboardCurrency(p));
+}
+
+function _renderCharacterVitals(container, p) {
+  container.replaceChildren();
+  if (p.hp && (p.hp.current != null || p.hp.max != null)) {
+    const hp = `${p.hp.current ?? '—'} / ${p.hp.max ?? '—'}`;
+    const temporary = Number(p.hp.temp) > 0 ? ` · ${p.hp.temp} temp` : '';
+    _appendDashboardStat(container, 'HP', `${hp}${temporary}`);
+  }
+  _appendDashboardStat(container, 'AC', p.ac);
+  if (p.xp && p.xp.current != null) {
+    _appendDashboardStat(
+      container,
+      'XP',
+      p.xp.next != null ? `${p.xp.current} / ${p.xp.next}` : String(p.xp.current),
+    );
+  }
+  _appendDashboardStat(container, 'Initiative', p.initiative);
+  _appendDashboardStat(container, 'Speed', _formatSpeed(p.speed));
+  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
+  _appendDashboardStat(
+    container,
+    'Proficiency',
+    overview.proficiency_bonus != null ? _formatSigned(overview.proficiency_bonus) : null,
+  );
+  _renderCharacterInventorySummary(container, p);
 }
 
 function _renderDashboardAbilitySummary(container, p) {
@@ -6635,6 +6673,26 @@ function _renderOverviewAbilities(grid, p, overview) {
   }
 }
 
+function _renderCharacterSavingThrows(grid, overview) {
+  const saves = Array.isArray(overview.saving_throws)
+    ? overview.saving_throws.filter(save => save && save.ability && save.bonus != null)
+    : [];
+  if (!saves.length) return;
+  const card = _dashboardOverviewCard('Saving Throws');
+  saves.forEach(save => {
+    const row = document.createElement('div');
+    row.className = 'dashboard-detail-row';
+    const ability = document.createElement('span');
+    ability.textContent = String(save.ability).toUpperCase();
+    const bonus = document.createElement('span');
+    bonus.className = 'dashboard-rank';
+    bonus.textContent = _formatSigned(save.bonus);
+    row.append(ability, bonus);
+    card.body.appendChild(row);
+  });
+  grid.appendChild(card.card);
+}
+
 function _renderOverviewSkills(grid, overview) {
   const skills = overview.skills && typeof overview.skills === 'object' ? overview.skills : {};
   const entries = Array.isArray(skills.entries) ? skills.entries : [];
@@ -6694,18 +6752,9 @@ function _renderOverviewProficiencies(grid, overview) {
   grid.appendChild(card.card);
 }
 
-function _renderDashboardOverview(panel, p) {
-  const grid = document.createElement('div');
-  grid.className = 'dashboard-overview-grid';
-  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
-
-  _renderOverviewAbilities(grid, p, overview);
-  _renderOverviewSkills(grid, overview);
-  _renderOverviewDefenses(grid, overview);
-  _renderOverviewProficiencies(grid, overview);
-
+function _renderCharacterStatus(grid, p) {
   const status = _dashboardOverviewCard('Status');
-  const conditions = Array.isArray(p.conditions) ? p.conditions : [];
+  const conditions = Array.isArray(p.conditions) ? p.conditions.filter(Boolean) : [];
   if (conditions.length) {
     const list = document.createElement('div');
     list.className = 'dashboard-condition-list';
@@ -6726,48 +6775,66 @@ function _renderDashboardOverview(panel, p) {
     status.body.appendChild(concentration);
   }
   grid.appendChild(status.card);
+}
 
+function _renderCharacterSpellSlots(grid, p) {
   const slots = p.spell_slots && typeof p.spell_slots === 'object'
     ? Object.entries(p.spell_slots).filter(([, value]) => value && value.max)
     : [];
-  if (slots.length) {
-    const spellCard = _dashboardOverviewCard('Spell slots');
-    slots.sort(([a], [b]) => String(a).localeCompare(String(b), undefined, {numeric: true}));
-    slots.forEach(([level, value]) => {
-      const row = document.createElement('div');
-      row.className = 'dashboard-slot-row';
-      const available = Math.max(0, Math.min(value.max, value.current ?? (value.max - (value.used || 0))));
-      const label = document.createElement('span');
-      label.textContent = `Level ${level}`;
-      const count = document.createElement('strong');
-      count.textContent = `${available}/${value.max}`;
-      row.append(label, count);
-      spellCard.body.appendChild(row);
-    });
-    grid.appendChild(spellCard.card);
-  }
+  if (!slots.length) return;
+  const card = _dashboardOverviewCard('Spell slots');
+  slots.sort(([a], [b]) => String(a).localeCompare(String(b), undefined, {numeric: true}));
+  slots.forEach(([level, value]) => {
+    const row = document.createElement('div');
+    row.className = 'dashboard-slot-row';
+    const available = Math.max(0, Math.min(value.max, value.current ?? (value.max - (value.used || 0))));
+    const label = document.createElement('span');
+    label.textContent = `Level ${level}`;
+    const count = document.createElement('strong');
+    count.textContent = `${available}/${value.max}`;
+    row.append(label, count);
+    card.body.appendChild(row);
+  });
+  grid.appendChild(card.card);
+}
 
+function _renderCharacterReference(grid, p, overview) {
   const details = [];
-  if (p.hp && p.hp.temp) details.push(`Temporary HP: ${p.hp.temp}`);
-  if (p.hit_dice && p.hit_dice.die) details.push(`Hit Dice: ${p.hit_dice.remaining ?? '?'}/${p.hit_dice.max ?? '?'} ${p.hit_dice.die}`);
+  if (p.hit_dice && p.hit_dice.die) {
+    details.push(`Hit Dice: ${p.hit_dice.remaining ?? '?'}/${p.hit_dice.max ?? '?'} ${p.hit_dice.die}`);
+  }
   const senses = Array.isArray(overview.senses) ? overview.senses.filter(item => item && item.name) : [];
   const resources = Array.isArray(overview.resources) ? overview.resources.filter(item => item && item.name) : [];
-  if (details.length || senses.length || resources.length) {
-    const atGlance = _dashboardOverviewCard('Reference');
-    details.forEach((detail, index) => {
-      if (index) atGlance.body.appendChild(document.createElement('br'));
-      atGlance.body.appendChild(document.createTextNode(detail));
-    });
-    _appendDetailGroup(atGlance.body, 'Senses', senses.map(item => item.name));
-    _appendDetailGroup(atGlance.body, 'Resources', resources.map(resource => {
-      const details = [];
-      if (resource.die) details.push(resource.die);
-      if (resource.max != null) details.push(`${resource.max} maximum`);
-      if (resource.recharge) details.push(resource.recharge);
-      return `${resource.name}${details.length ? `: ${details.join(', ')}` : ''}`;
-    }));
-    grid.appendChild(atGlance.card);
-  }
+  if (!details.length && !senses.length && !resources.length) return;
+  const card = _dashboardOverviewCard('Reference');
+  details.forEach((detail, index) => {
+    if (index) card.body.appendChild(document.createElement('br'));
+    card.body.appendChild(document.createTextNode(detail));
+  });
+  _appendDetailGroup(card.body, 'Senses', senses.map(item => item.name));
+  _appendDetailGroup(card.body, 'Resources', resources.map(resource => {
+    const metadata = [];
+    if (resource.die) metadata.push(resource.die);
+    if (resource.max != null) metadata.push(`${resource.max} maximum`);
+    if (resource.recharge) metadata.push(resource.recharge);
+    return `${resource.name}${metadata.length ? `: ${metadata.join(', ')}` : ''}`;
+  }));
+  grid.appendChild(card.card);
+}
+
+function _renderDashboardOverview(panel, p) {
+  const grid = document.createElement('div');
+  grid.className = 'dashboard-overview-grid';
+  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
+
+  _renderOverviewAbilities(grid, p, overview);
+  _renderCharacterSavingThrows(grid, overview);
+  _renderOverviewSkills(grid, overview);
+  _renderOverviewDefenses(grid, overview);
+  _renderOverviewProficiencies(grid, overview);
+  _renderCharacterStatus(grid, p);
+  _renderCharacterSpellSlots(grid, p);
+  _renderCharacterReference(grid, p, overview);
 
   panel.appendChild(grid);
 }
@@ -7153,24 +7220,8 @@ function _renderSelectedDashboard() {
   }
 
   overlay.hidden = false;
-  document.getElementById('dashboard-portrait-slot').replaceChildren(_makePlayerPortrait(p, 'dashboard-portrait'));
-  document.getElementById('dashboard-name').textContent = p.name || '—';
-  _renderDashboardIdentity(document.getElementById('dashboard-identity'), p);
-  const stats = document.getElementById('dashboard-headline-stats');
-  stats.replaceChildren();
-  if (p.hp && (p.hp.current != null || p.hp.max != null)) {
-    _appendDashboardStat(stats, 'HP', `${p.hp.current ?? '—'} / ${p.hp.max ?? '—'}`);
-  }
-  _appendDashboardStat(stats, 'AC', p.ac);
-  if (p.xp && p.xp.current != null) {
-    _appendDashboardStat(stats, 'XP', p.xp.next != null ? `${p.xp.current} / ${p.xp.next}` : String(p.xp.current));
-  }
-  _appendDashboardStat(stats, 'Initiative', p.initiative);
-  _appendDashboardStat(stats, 'Speed', _formatSpeed(p.speed));
-  const overview = p.overview && typeof p.overview === 'object' ? p.overview : {};
-  _appendDashboardStat(stats, 'Proficiency', overview.proficiency_bonus != null
-    ? _formatSigned(overview.proficiency_bonus) : null);
-  _appendDashboardStat(stats, 'Currency', _dashboardCurrency(p));
+  _renderCharacterHeader(p);
+  _renderCharacterVitals(document.getElementById('dashboard-headline-stats'), p);
   _renderDashboardAbilitySummary(document.getElementById('dashboard-ability-summary'), p);
   document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
     card.classList.toggle('is-selected', card.dataset.playerName === _dashboardPlayerName);
