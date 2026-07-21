@@ -35,8 +35,8 @@ def _load_module(path: pathlib.Path, name: str):
     return module
 
 
-def _digest(path: pathlib.Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def _digest(path: pathlib.Path) -> tuple[bool, str | None]:
+    return path.exists(), hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
 class AttunementActionTests(unittest.TestCase):
