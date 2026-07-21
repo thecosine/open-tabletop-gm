@@ -80,6 +80,8 @@ class StagingTransportTests(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.tmp.cleanup)
         cls.tmp_path = Path(cls.tmp.name)
+        cls.check_input = cls.tmp_path / "check_input.py"
+        cls.check_input.write_bytes((DISPLAY / "check_input.py").read_bytes())
         cls.app = _load_module(DISPLAY / "gm-display-app.py", "party_input_display_app")
         cls.app.QUEUE_FILE = str(cls.tmp_path / ".input_queue")
         cls.app._token_ok = lambda: True
@@ -131,8 +133,11 @@ class StagingTransportTests(unittest.TestCase):
 
         env = os.environ.copy()
         env["OTGM_INPUT_QUEUE"] = self.app.QUEUE_FILE
+        env["PYTHONPATH"] = os.pathsep.join(
+            filter(None, (str(DISPLAY), env.get("PYTHONPATH")))
+        )
         result = subprocess.run(
-            [sys.executable, str(DISPLAY / "check_input.py"), "--peek-json"],
+            [sys.executable, str(self.check_input), "--peek-json"],
             capture_output=True, text=True, env=env, check=True,
         )
         captured = json.loads(result.stdout)
