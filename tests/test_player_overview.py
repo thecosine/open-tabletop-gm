@@ -352,12 +352,15 @@ class OverviewFrontendContractTests(unittest.TestCase):
             self.assertIn(token, self.source)
 
     def test_headline_keeps_core_stats_and_adds_summary_stats(self):
+        source = self.source.split("function _renderCharacterVitals", 1)[1].split(
+            "function _renderDashboardAbilitySummary", 1
+        )[0]
         for token in (
-            "_appendDashboardStat(stats, 'HP'", "_appendDashboardStat(stats, 'AC'",
-            "_appendDashboardStat(stats, 'XP'", "_appendDashboardStat(stats, 'Initiative'",
-            "_appendDashboardStat(stats, 'Speed'", "_appendDashboardStat(stats, 'Proficiency'",
+            "_appendDashboardStat(container, 'HP'", "_appendDashboardStat(container, 'AC'",
+            "'XP'", "_appendDashboardStat(container, 'Initiative'",
+            "_appendDashboardStat(container, 'Speed'", "'Proficiency'",
         ):
-            self.assertIn(token, self.source)
+            self.assertIn(token, source)
 
     def test_header_currency_and_abilities_use_current_projections(self):
         currency = self.source.split("function _dashboardCurrency(p)", 1)[1].split(
@@ -411,7 +414,9 @@ class OverviewFrontendContractTests(unittest.TestCase):
         self.assertNotIn("None", defense + proficiencies)
 
     def test_senses_and_partial_resources_do_not_invent_current_values(self):
-        source = self._overview_source()
+        source = self.source.split("function _renderCharacterReference", 1)[1].split(
+            "function _renderDashboardOverview", 1
+        )[0]
         self.assertIn("overview.senses", source)
         self.assertIn("overview.resources", source)
         self.assertIn("maximum", source)

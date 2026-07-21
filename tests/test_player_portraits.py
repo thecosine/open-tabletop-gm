@@ -186,7 +186,10 @@ class PortraitFrontendContractTests(unittest.TestCase):
         )
 
     def test_dashboard_keeps_separate_portrait_call(self):
-        self.assertIn("replaceChildren(_makePlayerPortrait(p, 'dashboard-portrait'))", self.source)
+        header = self.source.split("function _renderCharacterHeader", 1)[1].split(
+            "function _appendDashboardStat", 1
+        )[0]
+        self.assertIn("_makePlayerPortrait(p, 'dashboard-portrait')", header)
 
     def test_sidebar_portrait_dimensions_are_enlarged(self):
         self.assertRegex(
@@ -226,8 +229,8 @@ class DashboardFrontendContractTests(unittest.TestCase):
         for token in (
             'id="dashboard-shell"', 'id="dashboard-portrait-slot"',
             'id="dashboard-name"', 'id="dashboard-headline-stats"',
-            "_renderSelectedDashboard", "_appendDashboardStat(stats, 'HP'",
-            "_appendDashboardStat(stats, 'AC'", "_appendDashboardStat(stats, 'XP'",
+            "_renderSelectedDashboard", "_renderCharacterHeader(p)",
+            "_renderCharacterVitals(document.getElementById('dashboard-headline-stats'), p)",
         ):
             self.assertIn(token, self.source)
 
