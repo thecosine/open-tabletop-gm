@@ -25,4 +25,14 @@
 - **Tool Proficiency:** Herbalism Kit
 
 ## Features
+- **Spellcasting:** WIS; spell save DC 14, spell attack +6
 - **Moon Elf:** Darkvision, Fey Ancestry, Trance, Keen Senses
+
+## Spellcasting
+- **Level-1 slots:** 4/4
+- **Level-2 slots:** 2/2
+- **Cantrips:** Sacred Flame, Spare the Dying, Thaumaturgy, Toll the Dead
+- **Domain cantrips:** Guidance, True Strike
+- **Prepared level-1 spells:** Healing Word, Command, Guiding Bolt
+- **Prepared level-2 spells:** Aid, Prayer of Healing, Sanctuary
+- **Always-prepared domain spells:** Bless, Bane, Augury, Enhance Ability; these do not count against her six normal prepared spells

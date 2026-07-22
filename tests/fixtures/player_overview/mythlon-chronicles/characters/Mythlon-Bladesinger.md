@@ -22,3 +22,11 @@
 ## Features
 - Bard: Bardic Inspiration d6, 5 uses per Long Rest
 - Divine disguise: magical inspection registers Mythlon as a base-level Arcane Trickster
+
+## Spellcasting
+- **Bard:** DC 15, attack +7, level-1 slots 4/4, level-2 slots 2/2
+- **Wizard:** DC 15, attack +7, level-1 slots 4/4, level-2 slots 2/2
+- **Bard cantrips:** Vicious Mockery, Booming Blade
+- **Bard spells:** Faerie Fire, Dissonant Whispers, Healing Word, Longstrider, Warding Wind
+- **Wizard cantrips:** Mage Hand, Prestidigitation, Minor Illusion
+- **Spellbook:** Find Familiar, Grease, Shield, Silvery Barbs, Gift of Alacrity, Absorb Elements, Invisibility, Misty Step, Shadow Blade, Vortex Warp, Web

@@ -120,6 +120,80 @@ class CanonicalProjectionTests(unittest.TestCase):
         self.assertNotIn("range", projected["senses"][0])
         self.assertTrue(all("rank" not in item for item in projected["skills"]["bonuses"]))
 
+    def test_mythlon_spell_sources_remain_separate_without_invented_known_status(self):
+        projected = self.overview.project_player_overview(CAMPAIGN, "Mythlon Bladesinger")
+        bard, wizard = projected["spellcasting"]["sources"]
+        self.assertEqual([bard["name"], wizard["name"]], ["Bard", "Wizard"])
+        self.assertEqual((bard["save_dc"], bard["attack_bonus"]), (15, 7))
+        self.assertEqual((wizard["save_dc"], wizard["attack_bonus"]), (15, 7))
+        self.assertEqual(
+            [spell["name"] for spell in bard["spells"][:2]],
+            ["Vicious Mockery", "Booming Blade"],
+        )
+        self.assertTrue(all(
+            spell["category"] == "cantrip" for spell in bard["spells"][:2]
+        ))
+        self.assertNotIn("category", bard["spells"][2])
+        self.assertTrue(all(
+            spell.get("category") == "spellbook" for spell in wizard["spells"][3:]
+        ))
+
+    def test_sassafras_projects_explicit_prepared_levels_and_domain_source(self):
+        projected = self.overview.project_player_overview(CAMPAIGN, "Sassafras Silverleaf")
+        cleric, domain = projected["spellcasting"]["sources"]
+        self.assertEqual(
+            {key: cleric[key] for key in ("name", "ability", "save_dc", "attack_bonus")},
+            {"name": "Cleric", "ability": "WIS", "save_dc": 14, "attack_bonus": 6},
+        )
+        prepared = [spell for spell in cleric["spells"] if spell.get("category") == "prepared"]
+        self.assertEqual([spell["level"] for spell in prepared], [1, 1, 1, 2, 2, 2])
+        self.assertEqual(domain["name"], "Hand of Fate Domain")
+        self.assertEqual(
+            [spell["name"] for spell in domain["spells"] if spell.get("category") == "always_prepared"],
+            ["Bless", "Bane", "Augury", "Enhance Ability"],
+        )
+        self.assertTrue(all(
+            "level" not in spell for spell in domain["spells"]
+            if spell.get("category") == "always_prepared"
+        ))
+
+    def test_spell_projection_accepts_only_explicit_spellcasting_fields(self):
+        text = """# Example
+
+## Identity
+- **Class:** Wizard 3 (Scribe)
+
+## Spellcasting
+- **Wizard known spells:** Shared Spell, Magic Missile
+- **Wizard prepared spells:** Shared Spell, Shield
+- **Rumored spells:** Wish
+
+## Notes
+- **Wizard known spells:** Meteor Swarm
+"""
+        sources = self.overview.project_overview_text(text)["spellcasting"]["sources"]
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["name"], "Wizard")
+        self.assertEqual(sources[0]["spells"], [
+            {"name": "Shared Spell", "category": "known"},
+            {"name": "Magic Missile", "category": "known"},
+            {"name": "Shared Spell", "category": "prepared"},
+            {"name": "Shield", "category": "prepared"},
+        ])
+        self.assertNotIn("Wish", json.dumps(sources))
+        self.assertNotIn("Meteor Swarm", json.dumps(sources))
+
+    def test_empty_spellcasting_section_is_omitted(self):
+        text = """# Example
+
+## Identity
+- **Class:** Wizard 3 (Scribe)
+
+## Spellcasting
+- No spell details recorded.
+"""
+        self.assertNotIn("spellcasting", self.overview.project_overview_text(text))
+
     def test_projection_is_deterministic_and_contains_no_source_material(self):
         first = self.overview.project_player_overview(CAMPAIGN, "Sassafras Silverleaf")
         second = self.overview.project_player_overview(CAMPAIGN, "Sassafras Silverleaf")
@@ -221,6 +295,7 @@ class LifecycleProjectionTests(unittest.TestCase):
         live = {"players": [{
             "name": "Mythlon Bladesinger", "side": "party",
             "hp": {"current": 13, "max": 30}, "class": "Arcane Trickster",
+            "sheet": {"spells": {"prepared": ["Legacy Spell"]}},
             "arbitrary": "preserved",
         }]}
         with mock.patch.object(self.app_module, "_find_campaign", return_value=CAMPAIGN):
@@ -228,10 +303,15 @@ class LifecycleProjectionTests(unittest.TestCase):
         self.assertNotIn("overview", live["players"][0])
         self.assertEqual(display["players"][0]["hp"], {"current": 13, "max": 30})
         self.assertEqual(display["players"][0]["class"], "Arcane Trickster")
+        self.assertEqual(display["players"][0]["sheet"], live["players"][0]["sheet"])
         self.assertEqual(display["players"][0]["arbitrary"], "preserved")
         self.assertEqual(
             display["players"][0]["overview"]["true_identity"]["class"],
             "Bladedancer / Chronurgy Wizard / College of Swords Bard",
+        )
+        self.assertEqual(
+            [source["name"] for source in display["players"][0]["overview"]["spellcasting"]["sources"]],
+            ["Bard", "Wizard"],
         )
 
     def test_replacement_player_snapshot_broadcasts_projection_without_persisting_it(self):
@@ -429,11 +509,12 @@ class OverviewFrontendContractTests(unittest.TestCase):
         self.assertIn("if (hasPlayerSnapshot || hasPeopleSnapshot) _renderSelectedDashboard()", update)
         for token in (
             "function _renderDashboardInventory", "function _renderDashboardPeople",
+            "function _renderDashboardSpells",
             "dashboard content is coming in a later phase",
             "focus({preventScroll: true})", "event.stopPropagation()", "openLegacySheet(_dashboardPlayerName)",
         ):
             self.assertIn(token, self.source)
-        for tab in ("Spells", "Features", "Notes"):
+        for tab in ("Features", "Notes"):
             self.assertNotIn(f"function _renderDashboard{tab}", self.source)
 
     def test_overview_snapshot_replaces_instead_of_merging_stale_fields(self):
