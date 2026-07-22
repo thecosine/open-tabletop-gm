@@ -1186,6 +1186,71 @@
   .dashboard-condition-list .sb-condition-pill { font-size: 10px; }
   .dashboard-slot-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: rgba(244,240,228,0.94); }
   .dashboard-slot-row strong { color: #f1d27b; }
+  .dashboard-spells { display: grid; gap: 9px; }
+  .dashboard-spell-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 12px;
+    padding: 8px 10px;
+    color: rgba(225,220,205,0.78);
+    background: rgba(255,255,255,0.025);
+    border-bottom: 1px solid rgba(180,140,60,0.18);
+    font-size: 11px;
+  }
+  .dashboard-spell-summary-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 7px; }
+  .dashboard-spell-summary strong { color: #f1d27b; font: 11px 'Cinzel', serif; }
+  .dashboard-spell-summary-detail { padding-left: 7px; border-left: 1px solid rgba(205,170,88,0.35); }
+  .dashboard-concentration { color: #d7b65e; }
+  .dashboard-spell-slots { display: grid; gap: 5px; min-width: 0; }
+  .dashboard-spell-slot-row { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+  .dashboard-spell-slot-source,
+  .dashboard-spell-source-name,
+  .dashboard-spell-level {
+    color: rgba(226,188,94,0.88);
+    font-family: 'Cinzel', serif;
+    font-size: 8px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .dashboard-spell-slot-source { flex: 0 0 74px; font-size: 9px; }
+  .dashboard-slot-compact {
+    display: inline-grid;
+    grid-template-columns: auto auto;
+    align-items: baseline;
+    gap: 8px;
+    max-width: 100%;
+    padding: 3px 7px;
+    color: rgba(224,216,195,0.78);
+    background: #11100d;
+    border: 1px solid rgba(180,140,60,0.14);
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .dashboard-slot-level { color: rgba(224,216,195,0.78); }
+  .dashboard-slot-compact strong {
+    color: #f1d27b;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-shadow: none;
+  }
+  .dashboard-spell-source { padding: 8px 10px; background: #11100d; border-left: 2px solid rgba(180,140,60,0.3); }
+  .dashboard-spell-source-name { margin-bottom: 5px; font-size: 9px; }
+  .dashboard-spell-level { margin-top: 6px; color: rgba(205,170,88,0.7); }
+  .dashboard-spell-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 12px; margin-top: 2px; }
+  .dashboard-spell-row { display: flex; align-items: baseline; gap: 5px; min-width: 0; padding: 4px 0; }
+  .dashboard-spell-name { min-width: 0; color: rgba(238,232,214,0.9); font-size: 12px; line-height: 1.45; }
+  .dashboard-spell-badge {
+    flex: 0 0 auto;
+    padding: 1px 4px;
+    color: #cdb4e7;
+    border: 1px solid rgba(150,115,195,0.28);
+    border-radius: 2px;
+    font-size: 8px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+  }
   .dashboard-inventory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .dashboard-inventory-section {
     min-width: 0;
@@ -1319,6 +1384,9 @@
     .dashboard-portrait.sb-player-portrait { width: 84px; height: 84px; flex-basis: 84px; }
     #dashboard-full-sheet { order: 3; }
     .dashboard-overview-grid { grid-template-columns: 1fr; }
+    .dashboard-spell-slot-row { max-width: 100%; }
+    .dashboard-spell-slot-source { flex-basis: 100%; }
+    .dashboard-spell-list { grid-template-columns: 1fr; }
     .dashboard-inventory-grid { grid-template-columns: 1fr; }
     .dashboard-inventory-section.wide { grid-column: auto; }
     .dashboard-ability-grid { grid-template-columns: repeat(3, minmax(54px, 1fr)); }
@@ -6778,24 +6846,48 @@ function _renderCharacterStatus(grid, p) {
 }
 
 function _renderCharacterSpellSlots(grid, p) {
-  const slots = p.spell_slots && typeof p.spell_slots === 'object'
-    ? Object.entries(p.spell_slots).filter(([, value]) => value && value.max)
-    : [];
+  const slots = _spellSlotRows(p);
   if (!slots.length) return;
   const card = _dashboardOverviewCard('Spell slots');
-  slots.sort(([a], [b]) => String(a).localeCompare(String(b), undefined, {numeric: true}));
-  slots.forEach(([level, value]) => {
+  _appendSpellSlotRows(card.body, slots);
+  grid.appendChild(card.card);
+}
+
+function _spellSlotRows(p) {
+  if (!p.spell_slots || typeof p.spell_slots !== 'object' || Array.isArray(p.spell_slots)) return [];
+  return Object.entries(p.spell_slots).flatMap(([level, value]) => {
+    if (!value || typeof value !== 'object') return [];
+    const maximum = Number(value.max);
+    if (!Number.isFinite(maximum) || maximum <= 0) return [];
+    let available = maximum;
+    if (value.current != null && Number.isFinite(Number(value.current))) {
+      available = Number(value.current);
+    } else if (value.remaining != null && Number.isFinite(Number(value.remaining))) {
+      available = Number(value.remaining);
+    } else if (value.used != null && Number.isFinite(Number(value.used))) {
+      available = maximum - Number(value.used);
+    }
+    const key = String(level);
+    return [{
+      key,
+      label: /^\d+$/.test(key) ? `Level ${key}` : key,
+      available: Math.max(0, Math.min(maximum, available)),
+      maximum,
+    }];
+  }).sort((a, b) => a.key.localeCompare(b.key, undefined, {numeric: true}));
+}
+
+function _appendSpellSlotRows(container, slots) {
+  slots.forEach(slot => {
     const row = document.createElement('div');
     row.className = 'dashboard-slot-row';
-    const available = Math.max(0, Math.min(value.max, value.current ?? (value.max - (value.used || 0))));
     const label = document.createElement('span');
-    label.textContent = `Level ${level}`;
+    label.textContent = slot.label;
     const count = document.createElement('strong');
-    count.textContent = `${available}/${value.max}`;
+    count.textContent = `${slot.available}/${slot.maximum}`;
     row.append(label, count);
-    card.body.appendChild(row);
+    container.appendChild(row);
   });
-  grid.appendChild(card.card);
 }
 
 function _renderCharacterReference(grid, p, overview) {
@@ -7180,6 +7272,214 @@ function _renderDashboardPeople(panel, selectedPlayer) {
   panel.appendChild(list);
 }
 
+function _spellcastingData(player) {
+  const projected = player.overview && player.overview.spellcasting
+    && Array.isArray(player.overview.spellcasting.sources)
+    ? player.overview.spellcasting.sources : [];
+  const sources = projected.flatMap(rawSource => {
+    if (!rawSource || typeof rawSource !== 'object' || !rawSource.name) return [];
+    const spells = Array.isArray(rawSource.spells) ? rawSource.spells.flatMap(rawSpell => {
+      if (!rawSpell || typeof rawSpell !== 'object' || typeof rawSpell.name !== 'string'
+          || !rawSpell.name.trim()) return [];
+      const category = ['known', 'spellbook', 'prepared', 'always_prepared', 'cantrip']
+        .includes(rawSpell.category) ? rawSpell.category : '';
+      const level = Number.isInteger(rawSpell.level) && rawSpell.level >= 0 ? rawSpell.level : null;
+      return [{name: rawSpell.name.trim(), category, level}];
+    }) : [];
+    return [{
+      name: String(rawSource.name),
+      ability: rawSource.ability ? String(rawSource.ability) : '',
+      saveDc: rawSource.save_dc != null ? String(rawSource.save_dc) : '',
+      attackBonus: rawSource.attack_bonus != null ? rawSource.attack_bonus : '',
+      spells,
+    }];
+  });
+  if (sources.length) return {sources, staticSlots: ''};
+
+  const legacy = player.sheet && player.sheet.spells
+    && typeof player.sheet.spells === 'object' && !Array.isArray(player.sheet.spells)
+    ? player.sheet.spells : {};
+  const names = values => Array.isArray(values)
+    ? values.filter(value => typeof value === 'string' && value.trim()).map(value => value.trim())
+    : [];
+  const legacySpells = [
+    ...names(legacy.cantrips).map(name => ({name, category: 'cantrip', level: null})),
+    ...names(legacy.prepared).map(name => ({name, category: 'prepared', level: null})),
+  ];
+  const hasLegacy = legacySpells.length || legacy.save_dc != null || legacy.attack_bonus != null;
+  return {
+    sources: hasLegacy ? [{
+      name: 'Spellcasting',
+      ability: '',
+      saveDc: legacy.save_dc != null ? String(legacy.save_dc) : '',
+      attackBonus: legacy.attack_bonus != null ? String(legacy.attack_bonus) : '',
+      spells: legacySpells,
+    }] : [],
+    staticSlots: typeof legacy.slots === 'string' ? legacy.slots.trim() : '',
+  };
+}
+
+function _spellCategoryLabel(category) {
+  return {
+    known: 'Known',
+    spellbook: 'Spellbook',
+    prepared: 'Prepared',
+    always_prepared: 'Always prepared',
+    cantrip: 'Cantrip',
+  }[category] || '';
+}
+
+function _appendSpellRows(container, spells) {
+  const list = document.createElement('div');
+  list.className = 'dashboard-spell-list';
+  spells.forEach(spell => {
+    const row = document.createElement('div');
+    row.className = 'dashboard-spell-row';
+    const name = document.createElement('span');
+    name.className = 'dashboard-spell-name';
+    name.textContent = spell.name;
+    row.appendChild(name);
+    const category = _spellCategoryLabel(spell.category);
+    if (category) {
+      const badge = document.createElement('span');
+      badge.className = 'dashboard-spell-badge';
+      badge.textContent = category;
+      row.appendChild(badge);
+    }
+    list.appendChild(row);
+  });
+  container.appendChild(list);
+}
+
+function _spellSlotGroups(slots) {
+  const groups = new Map();
+  slots.forEach(slot => {
+    const sourceMatch = slot.key.match(/^(.+\S)\s+(\S+)$/);
+    const source = sourceMatch ? sourceMatch[1] : 'Slots';
+    const level = sourceMatch ? sourceMatch[2] : slot.key;
+    const groupKey = source.toLocaleLowerCase();
+    if (!groups.has(groupKey)) groups.set(groupKey, {source, slots: []});
+    groups.get(groupKey).slots.push({...slot, level});
+  });
+  return [...groups.values()];
+}
+
+function _appendCompactSpellSlot(container, slot) {
+  const item = document.createElement('span');
+  item.className = 'dashboard-slot-compact';
+  const level = document.createElement('span');
+  level.className = 'dashboard-slot-level';
+  level.textContent = slot.level;
+  const count = document.createElement('strong');
+  count.textContent = `${slot.available} / ${slot.maximum}`;
+  item.append(level, count);
+  container.appendChild(item);
+}
+
+function _renderDashboardSpells(panel, player) {
+  const spellcasting = _spellcastingData(player);
+  const slots = _spellSlotRows(player);
+  const wrap = document.createElement('div');
+  wrap.className = 'dashboard-spells';
+  if (spellcasting.sources.length || player.concentration) {
+    const summary = document.createElement('div');
+    summary.className = 'dashboard-spell-summary';
+    spellcasting.sources.forEach(source => {
+      const item = document.createElement('span');
+      item.className = 'dashboard-spell-summary-item';
+      const name = document.createElement('strong');
+      name.textContent = source.name;
+      item.appendChild(name);
+      const details = [];
+      if (source.ability) details.push(source.ability);
+      if (source.saveDc) details.push(`DC ${source.saveDc}`);
+      if (source.attackBonus) details.push(`attack ${_formatSigned(source.attackBonus)}`);
+      details.forEach(detail => {
+        const value = document.createElement('span');
+        value.className = 'dashboard-spell-summary-detail';
+        value.textContent = detail;
+        item.appendChild(value);
+      });
+      summary.appendChild(item);
+    });
+    if (player.concentration) {
+      const concentration = document.createElement('div');
+      concentration.className = 'dashboard-concentration';
+      concentration.textContent = `Concentrating: ${player.concentration}`;
+      summary.appendChild(concentration);
+    }
+    wrap.appendChild(summary);
+  }
+
+  if (slots.length || spellcasting.staticSlots) {
+    const slotWrap = document.createElement('div');
+    slotWrap.className = 'dashboard-spell-slots';
+    if (slots.length) {
+      _spellSlotGroups(slots).forEach(group => {
+        const row = document.createElement('div');
+        row.className = 'dashboard-spell-slot-row';
+        const source = document.createElement('span');
+        source.className = 'dashboard-spell-slot-source';
+        source.textContent = group.source;
+        source.title = group.source;
+        row.appendChild(source);
+        group.slots.forEach(slot => _appendCompactSpellSlot(row, slot));
+        slotWrap.appendChild(row);
+      });
+    } else {
+      const row = document.createElement('div');
+      row.className = 'dashboard-spell-slot-row';
+      const source = document.createElement('span');
+      source.className = 'dashboard-spell-slot-source';
+      source.textContent = 'Slots';
+      const fallback = document.createElement('span');
+      fallback.className = 'dashboard-slot-compact';
+      fallback.textContent = spellcasting.staticSlots;
+      row.append(source, fallback);
+      slotWrap.appendChild(row);
+    }
+    wrap.appendChild(slotWrap);
+  }
+
+  spellcasting.sources.forEach(source => {
+    if (!source.spells.length) return;
+    const section = document.createElement('section');
+    section.className = 'dashboard-spell-source';
+    const heading = document.createElement('div');
+    heading.className = 'dashboard-spell-source-name';
+    heading.textContent = source.name;
+    section.appendChild(heading);
+    const groups = new Map();
+    source.spells.forEach(spell => {
+      const key = spell.category === 'cantrip' ? 'cantrips'
+        : spell.level != null ? `level-${spell.level}` : 'other';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(spell);
+    });
+    ['cantrips', ...[...groups.keys()].filter(key => key.startsWith('level-'))
+      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6))), 'other'].forEach(key => {
+      const group = groups.get(key);
+      if (!group || !group.length) return;
+      const level = document.createElement('div');
+      level.className = 'dashboard-spell-level';
+      level.textContent = key === 'cantrips' ? 'Cantrips'
+        : key === 'other' ? 'Other spells' : `Level ${key.slice(6)}`;
+      section.appendChild(level);
+      _appendSpellRows(section, group);
+    });
+    wrap.appendChild(section);
+  });
+
+  if (!wrap.childElementCount) {
+    const empty = document.createElement('div');
+    empty.className = 'dashboard-placeholder dashboard-spells-empty';
+    empty.textContent = 'No spellcasting details are available for this character.';
+    panel.appendChild(empty);
+    return;
+  }
+  panel.appendChild(wrap);
+}
+
 function _setDashboardTab(tabName) {
   _dashboardTab = tabName;
   const panel = document.getElementById('dashboard-tab-panel');
@@ -7202,6 +7502,10 @@ function _setDashboardTab(tabName) {
   }
   if (tabName === 'People') {
     _renderDashboardPeople(panel, p);
+    return;
+  }
+  if (tabName === 'Spells') {
+    _renderDashboardSpells(panel, p);
     return;
   }
   const placeholder = document.createElement('div');

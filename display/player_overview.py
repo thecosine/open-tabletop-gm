@@ -48,6 +48,98 @@ def _split_list(value: str) -> list[str]:
     return [item.strip().rstrip(".") for item in re.split(r",|\band\b", value) if item.strip()]
 
 
+def _spell_names(value: str) -> list[str]:
+    return _split_list(value.split(";", 1)[0])
+
+
+def _spellcasting(sections: dict[str, list[str]]) -> dict[str, Any] | None:
+    lines = sections.get("spellcasting", [])
+    if not lines:
+        return None
+
+    identity_class = _fields(sections.get("identity", [])).get("class", "")
+    base_class_match = re.search(r"\b(Cleric)\s+\d+\b", identity_class, re.IGNORECASE)
+    domain_match = re.search(r"\(([^)]+\bDomain)\)", identity_class, re.IGNORECASE)
+    base_class = base_class_match.group(1).title() if base_class_match else ""
+    domain = domain_match.group(1).strip() if domain_match else ""
+    sources: list[dict[str, Any]] = []
+
+    def source(name: str) -> dict[str, Any]:
+        folded = name.casefold()
+        for existing in sources:
+            if existing["name"].casefold() == folded:
+                return existing
+        created: dict[str, Any] = {"name": name, "spells": []}
+        sources.append(created)
+        return created
+
+    feature_casting = _fields(sections.get("features", [])).get("spellcasting", "")
+    feature_match = re.fullmatch(
+        r"([A-Za-z]{3});\s*spell save DC\s*([+-]?\d+),\s*spell attack\s*([+-]?\d+)",
+        feature_casting,
+        re.IGNORECASE,
+    )
+    if feature_match and base_class:
+        casting_source = source(base_class)
+        casting_source.update({
+            "ability": feature_match.group(1).upper(),
+            "save_dc": int(feature_match.group(2)),
+            "attack_bonus": int(feature_match.group(3)),
+        })
+
+    fields = _fields(lines)
+    for label, value in fields.items():
+        display_label = label.strip()
+        source_meta = re.fullmatch(r"(bard|wizard)", display_label, re.IGNORECASE)
+        if source_meta:
+            meta = re.match(
+                r"DC\s*([+-]?\d+),\s*attack\s*([+-]?\d+)(?:,|$)", value, re.IGNORECASE
+            )
+            if meta:
+                casting_source = source(source_meta.group(1).title())
+                casting_source["save_dc"] = int(meta.group(1))
+                casting_source["attack_bonus"] = int(meta.group(2))
+            continue
+
+        spell_source = ""
+        category = ""
+        level: int | None = None
+        if display_label == "cantrips" and base_class:
+            spell_source, category = base_class, "cantrip"
+        elif display_label == "domain cantrips" and domain:
+            spell_source, category = domain, "cantrip"
+        elif match := re.fullmatch(r"(.+?) cantrips", display_label, re.IGNORECASE):
+            spell_source, category = match.group(1).strip().title(), "cantrip"
+        elif match := re.fullmatch(r"prepared level-(\d+) spells", display_label, re.IGNORECASE):
+            if base_class:
+                spell_source, category, level = base_class, "prepared", int(match.group(1))
+        elif display_label == "always-prepared domain spells" and domain:
+            spell_source, category = domain, "always_prepared"
+        elif match := re.fullmatch(r"(.+?) known spells", display_label, re.IGNORECASE):
+            spell_source, category = match.group(1).strip().title(), "known"
+        elif match := re.fullmatch(r"(.+?) (?:prepared|readied) spells", display_label, re.IGNORECASE):
+            spell_source, category = match.group(1).strip().title(), "prepared"
+        elif display_label == "spellbook" and any(item["name"] == "Wizard" for item in sources):
+            spell_source, category = "Wizard", "spellbook"
+        elif match := re.fullmatch(r"(.+?) spells", display_label, re.IGNORECASE):
+            candidate = match.group(1).strip().title()
+            if any(item["name"].casefold() == candidate.casefold() for item in sources):
+                spell_source = candidate
+
+        if not spell_source:
+            continue
+        for name in _spell_names(value):
+            spell: dict[str, Any] = {"name": name}
+            if category:
+                spell["category"] = category
+            if level is not None:
+                spell["level"] = level
+            source(spell_source)["spells"].append(spell)
+
+    populated = [item for item in sources if len(item) > 2 or item["spells"]]
+    return {"sources": populated} if populated else None
+
+
 def _gestalt_identity(raw_class: str) -> dict[str, Any] | None:
     if not raw_class.casefold().startswith("gestalt "):
         return None
@@ -332,6 +424,9 @@ def project_overview_text(text: str) -> dict[str, Any]:
         }]
 
     _explicit_groups(sections, overview)
+    spellcasting = _spellcasting(sections)
+    if spellcasting:
+        overview["spellcasting"] = spellcasting
     return overview
 
 
