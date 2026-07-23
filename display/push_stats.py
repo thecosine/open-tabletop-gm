@@ -157,10 +157,10 @@ def main() -> None:
                         help="Spell being concentrated on (requires --player); empty string clears")
     parser.add_argument("--spell-slots", metavar="JSON",
                         help='Spell slots per level, full replace: {"1":{"used":1,"max":4},...} (requires --player)')
-    parser.add_argument("--slot-use", metavar="LEVEL", type=int,
-                        help="Expend one slot at the given level (requires --player)")
-    parser.add_argument("--slot-restore", metavar="LEVEL", type=int,
-                        help="Restore one slot at the given level (requires --player)")
+    parser.add_argument("--slot-use", metavar="POOL",
+                        help="Expend one slot by numeric level or exact labelled pool (requires --player)")
+    parser.add_argument("--slot-restore", metavar="POOL",
+                        help="Restore one slot by numeric level or exact labelled pool (requires --player)")
     parser.add_argument("--inventory-add", metavar="ITEM",
                         help="Append one item to inventory (requires --player)")
     parser.add_argument("--inventory-remove", metavar="ITEM",

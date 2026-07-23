@@ -22,6 +22,7 @@ Endpoints:
     GET  /srd-lookup           → look up a spell/item/feature/condition by name
 """
 
+import copy
 import hmac
 import json
 import pathlib
@@ -355,6 +356,129 @@ def _normalize_slot(slot: dict) -> None:
         slot["used"] = max(mx - int(slot.get("remaining", 0)), 0)
     else:
         slot["used"] = 0
+
+
+_SLOT_KEY_RE = re.compile(r"^(.+?)\s+([1-9]\d*|[IVXLCDM]+)$", re.IGNORECASE)
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _roman_value(value: str) -> int | None:
+    total = previous = 0
+    for char in reversed(value.upper()):
+        current = _ROMAN_VALUES.get(char)
+        if current is None:
+            return None
+        total += -current if current < previous else current
+        previous = max(previous, current)
+    return total or None
+
+
+def _roman_numeral(value: int) -> str:
+    parts = ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+             (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+             (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"))
+    result = []
+    for amount, numeral in parts:
+        while value >= amount:
+            result.append(numeral)
+            value -= amount
+    return "".join(result)
+
+
+def _slot_key(key: object) -> tuple[str | None, int] | None:
+    text = str(key).strip()
+    if text.isdigit() and int(text) > 0:
+        return None, int(text)
+    match = _SLOT_KEY_RE.fullmatch(text)
+    if not match:
+        return None
+    level_text = match.group(2)
+    level = int(level_text) if level_text.isdigit() else _roman_value(level_text)
+    return (match.group(1).strip(), level) if level else None
+
+
+def _slot_representation(slots: object) -> str:
+    if not isinstance(slots, dict):
+        raise ValueError("spell_slots must be an object")
+    kinds = set()
+    for key, value in slots.items():
+        parsed = _slot_key(key)
+        if parsed is None or not isinstance(value, dict):
+            raise ValueError(f"Invalid spell-slot pool: {key}")
+        kinds.add("numeric" if parsed[0] is None else "labelled")
+    return "empty" if not kinds else kinds.pop() if len(kinds) == 1 else "mixed"
+
+
+def _advance_labelled_slot(existing: dict, incoming: dict) -> dict:
+    """Advance capacity without refilling slots that were already expended."""
+    result = copy.deepcopy(existing)
+    old_max = int(existing.get("max", 0))
+    new_max = int(incoming.get("max", old_max))
+    delta = new_max - old_max
+    result["max"] = new_max
+    if "current" in existing:
+        result["current"] = max(0, min(new_max, int(existing["current"]) + delta))
+    elif "remaining" in existing:
+        result["remaining"] = max(0, min(new_max, int(existing["remaining"]) + delta))
+    elif "used" in existing:
+        result["used"] = max(0, min(new_max, int(existing["used"])))
+    else:
+        for key, value in incoming.items():
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _merge_spell_slots(existing: object, incoming: object) -> dict:
+    """Merge a slot update without changing the character's pool representation."""
+    existing_slots = copy.deepcopy(existing or {})
+    incoming_slots = copy.deepcopy(incoming)
+    old_kind = _slot_representation(existing_slots)
+    new_kind = _slot_representation(incoming_slots)
+    if "mixed" in (old_kind, new_kind):
+        raise ValueError("Mixed numeric and class-labelled spell-slot pools are unsafe")
+    if old_kind in ("empty", new_kind):
+        existing_slots.update(incoming_slots)
+        return existing_slots
+    if old_kind == "numeric" or new_kind != "numeric":
+        raise ValueError("Spell-slot update would change the character's pool representation")
+
+    by_level: dict[int, dict[str, str]] = {}
+    for key in existing_slots:
+        source, level = _slot_key(key)  # validated by _slot_representation
+        by_level.setdefault(level, {})[source] = key
+    source_sets = {frozenset(keys) for keys in by_level.values()}
+    if len(source_sets) != 1:
+        raise ValueError("Class-labelled spell-slot pools are incomplete across casting sources")
+    sources = next(iter(source_sets))
+    styles = {
+        source: not _SLOT_KEY_RE.fullmatch(next(
+            key for keys in by_level.values() for candidate, key in keys.items() if candidate == source
+        )).group(2).isdigit()
+        for source in sources
+    }
+    for numeric_key, update in incoming_slots.items():
+        level = int(numeric_key)
+        for source in sources:
+            key = by_level.get(level, {}).get(source)
+            if key is None:
+                suffix = _roman_numeral(level) if styles[source] else str(level)
+                key = f"{source} {suffix}"
+                existing_slots[key] = copy.deepcopy(update)
+            else:
+                existing_slots[key] = _advance_labelled_slot(existing_slots[key], update)
+    return existing_slots
+
+
+def _resolve_slot_pool(slots: object, requested: object) -> str:
+    kind = _slot_representation(slots)
+    if kind == "mixed":
+        raise ValueError("Mixed numeric and class-labelled spell-slot pools are unsafe")
+    requested_key = str(requested).strip()
+    if kind == "labelled" and requested_key.isdigit():
+        raise ValueError("Class-separated spell slots require an exact labelled pool")
+    if kind == "labelled" and requested_key not in slots:
+        raise ValueError(f"Unknown spell-slot pool: {requested_key}")
+    return requested_key
 
 
 def _staged_snapshot() -> dict:
@@ -1702,6 +1826,27 @@ def stats():
     _effect_expire_events: list[dict] = []
     with _stats_lock:
         if "players" in data:
+            # Resolve every slot operation before mutating any player field. This
+            # also keeps validation and mutation on one consistent stats snapshot.
+            existing_players = _current_stats.get("players", [])
+            try:
+                for incoming in data["players"]:
+                    match = next((
+                        player for player in existing_players
+                        if player.get("name") == incoming.get("name")
+                    ), None)
+                    if not match:
+                        continue
+                    candidate_slots = match.get("spell_slots", {})
+                    if "spell_slots" in incoming:
+                        candidate_slots = _merge_spell_slots(candidate_slots, incoming["spell_slots"])
+                        incoming["spell_slots"] = candidate_slots
+                    for operation in ("_slot_use", "_slot_restore"):
+                        if operation in incoming:
+                            incoming[operation] = _resolve_slot_pool(candidate_slots, incoming[operation])
+            except ValueError as exc:
+                return str(exc), 400
+
             # replace_players=true wipes the list first — used on campaign load
             if data.get("replace_players"):
                 _current_stats["players"] = []
@@ -1752,14 +1897,12 @@ def stats():
                             ]
                         elif key == "_slot_use":
                             slots = match.setdefault("spell_slots", {})
-                            lvl = str(val)
-                            slot = slots.setdefault(lvl, {"used": 0, "max": 0})
+                            slot = slots.setdefault(str(val), {"used": 0, "max": 0})
                             _normalize_slot(slot)
                             slot["used"] = min(slot["used"] + 1, slot.get("max", 99))
                         elif key == "_slot_restore":
                             slots = match.setdefault("spell_slots", {})
-                            lvl = str(val)
-                            slot = slots.setdefault(lvl, {"used": 0, "max": 0})
+                            slot = slots.setdefault(str(val), {"used": 0, "max": 0})
                             _normalize_slot(slot)
                             slot["used"] = max(slot["used"] - 1, 0)
                         elif key == "_hd_use":
@@ -1814,6 +1957,8 @@ def stats():
                             # sidebar clean (no "Bennie: 0" lingering).
                             if ms.get(label, 0) == 0:
                                 ms.pop(label, None)
+                        elif key == "spell_slots":
+                            match[key] = val
                         elif isinstance(val, dict) and isinstance(match.get(key), dict):
                             match[key].update(val)
                         else:
