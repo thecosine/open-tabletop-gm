@@ -278,19 +278,15 @@ def _build_stats_payload(args) -> "dict | None":
         idx = spec.rfind(":")
         if idx > 0:
             name, lvl = spec[:idx], spec[idx + 1:]
-            try:
-                _p(name)["_slot_use"] = int(lvl)
-            except ValueError:
-                pass
+            if lvl.strip():
+                _p(name)["_slot_use"] = lvl.strip()
 
     for spec in (args.stat_slot_restore or []):
         idx = spec.rfind(":")
         if idx > 0:
             name, lvl = spec[:idx], spec[idx + 1:]
-            try:
-                _p(name)["_slot_restore"] = int(lvl)
-            except ValueError:
-                pass
+            if lvl.strip():
+                _p(name)["_slot_restore"] = lvl.strip()
 
     for spec in (args.stat_condition_add or []):
         idx = spec.find(":")
