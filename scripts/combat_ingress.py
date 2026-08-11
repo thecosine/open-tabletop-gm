@@ -23,6 +23,10 @@ class AttackIngressError(combat.CombatTransactionError):
     """Typed ingress validation or dispatch failure."""
 
 
+class NoActiveCombatError(AttackIngressError):
+    """The selected campaign has no authoritative combat in progress."""
+
+
 def _campaign_store(repo_root: Path, campaign: Any) -> Path:
     if not isinstance(campaign, str) or not CAMPAIGN_RE.fullmatch(campaign):
         raise AttackIngressError("campaign must be a safe campaign identifier")
@@ -32,8 +36,10 @@ def _campaign_store(repo_root: Path, campaign: Any) -> Path:
     if not campaign_dir.is_dir() or campaign_dir.is_symlink():
         raise AttackIngressError("selected campaign directory is unavailable or unsafe")
     store = campaign_dir / "combat-state.json"
-    if not store.exists() or store.is_symlink():
-        raise AttackIngressError("selected campaign has no authoritative combat store")
+    if not store.exists():
+        raise NoActiveCombatError("selected campaign has no authoritative combat store")
+    if store.is_symlink():
+        raise AttackIngressError("selected campaign combat store is unsafe")
     state = combat.load_store(store)
     if state["campaign"] != campaign:
         raise AttackIngressError("selected campaign does not match combat authority")

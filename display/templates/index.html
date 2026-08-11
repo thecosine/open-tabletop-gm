@@ -8654,6 +8654,10 @@ window.openTabletopCombat = {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Combat projection unavailable');
     if (generation !== _combatGeneration) return null;
+    if (body.status === 'idle') {
+      _resetCombatProjection();
+      return null;
+    }
     body.client_generation = generation;
     window.dispatchEvent(new CustomEvent('open-tabletop-combat-projection', {detail: body}));
     return body;

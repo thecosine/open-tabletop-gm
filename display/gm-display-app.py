@@ -3560,6 +3560,8 @@ def combat_projection_view():
     try:
         store = _combat_ingress._campaign_store(pathlib.Path(_SKILL_DIR), campaign)
         return jsonify(_combat_ingress.combat.read_display_projection(store)), 200
+    except _combat_ingress.NoActiveCombatError:
+        return jsonify({"status": "idle", "campaign": campaign}), 200
     except _combat_ingress.combat.DestinationConflictError:
         return jsonify({"error": "combat projection is stale"}), 409
     except (OSError, json.JSONDecodeError, _combat_ingress.combat.CombatTransactionError):

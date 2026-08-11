@@ -237,6 +237,16 @@ class ComposerMarkupTests(unittest.TestCase):
         self.assertIn("catch(_reportCombatBootstrapFailure)", self.source)
         self.assertNotIn("catch(() => null);\n    }\n    if (payload.combat_campaign)", self.source)
 
+    def test_idle_combat_projection_resets_without_reporting_bootstrap_failure(self):
+        projection = re.search(
+            r"projection: async \(\) => \{.*?\n  \},", self.source, re.DOTALL
+        ).group(0)
+        self.assertIn("if (body.status === 'idle')", projection)
+        self.assertIn("_resetCombatProjection()", projection)
+        self.assertIn("return null", projection)
+        self.assertLess(projection.index("body.status === 'idle'"), projection.index("open-tabletop-combat-projection"))
+        self.assertNotIn("_reportCombatBootstrapFailure", projection)
+
     def test_campaign_switch_rebootstraps_combat_and_clears_encounter_projection(self):
         self.assertIn("_acceptCombatCampaignPayload(payload)", self.source)
         self.assertIn("_bootstrapCombatDevice()", self.source)
@@ -677,6 +687,69 @@ class StagingTransportTests(unittest.TestCase):
         self.assertEqual(gm.status_code, 200)
         self.assertEqual(gm.get_json(), projection)
         read_projection.assert_called_once()
+
+    def test_successful_bootstrap_without_active_combat_returns_idle(self):
+        device = "idle-local-device-0001"
+        with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"):
+            bootstrap = self.client.post(
+                "/combat/device/bootstrap",
+                json={"device_id": device, "client_mode": "gm-display"},
+            )
+            grant = bootstrap.get_json()
+            with mock.patch.object(
+                self.app._combat_ingress, "_campaign_store",
+                side_effect=self.app._combat_ingress.NoActiveCombatError(
+                    "selected campaign has no authoritative combat store"
+                ),
+            ):
+                projection = self.client.get(
+                    "/combat/projection",
+                    headers={
+                        "X-DND-Device": device,
+                        "X-DND-Combat-Token": grant["capability_token"],
+                    },
+                )
+        self.assertEqual(bootstrap.status_code, 200)
+        self.assertEqual(projection.status_code, 200)
+        self.assertEqual(projection.get_json(), {"status": "idle", "campaign": "test-campaign"})
+
+    def test_unauthorized_projection_is_rejected_before_idle_detection(self):
+        with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"), mock.patch.object(
+            self.app._combat_ingress, "_campaign_store"
+        ) as campaign_store:
+            response = self.client.get("/combat/projection")
+        self.assertEqual(response.status_code, 403)
+        campaign_store.assert_not_called()
+
+    def test_stale_and_campaign_mismatched_projections_remain_rejected(self):
+        failures = (
+            (self.app._combat_ingress.combat.DestinationConflictError("stale"), 409, "stale"),
+            (self.app._combat_ingress.AttackIngressError("campaign mismatch"), 503, "unavailable"),
+        )
+        with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"):
+            for failure, status, message in failures:
+                with self.subTest(status=status, message=message), mock.patch.object(
+                    self.app._combat_ingress, "_campaign_store", side_effect=failure
+                ):
+                    response = self.client.get(
+                        "/combat/projection", headers=self._combat_headers(self.gm_device)
+                    )
+                self.assertEqual(response.status_code, status)
+                self.assertIn(message, response.get_json()["error"])
+
+    def test_symlinked_combat_store_is_not_treated_as_idle(self):
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
+            os.environ, {"GM_CAMPAIGN_ROOT": directory}
+        ):
+            root = Path(directory)
+            campaign = root / "campaigns" / "test-campaign"
+            campaign.mkdir(parents=True)
+            target = root / "combat-state.json"
+            target.write_text("{}", encoding="utf-8")
+            (campaign / "combat-state.json").symlink_to(target)
+            with self.assertRaises(self.app._combat_ingress.AttackIngressError) as raised:
+                self.app._combat_ingress._campaign_store(Path(self.app._SKILL_DIR), "test-campaign")
+        self.assertNotIsInstance(raised.exception, self.app._combat_ingress.NoActiveCombatError)
 
     def test_combat_grants_have_bounded_lifetimes_and_campaign_revocation(self):
         with self.assertRaisesRegex(ValueError, "expiry"):
