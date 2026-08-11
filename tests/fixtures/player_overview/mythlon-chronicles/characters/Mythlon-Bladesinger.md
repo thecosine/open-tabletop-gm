@@ -29,4 +29,5 @@
 - **Bard cantrips:** Vicious Mockery, Booming Blade
 - **Bard spells:** Faerie Fire, Dissonant Whispers, Healing Word, Longstrider, Warding Wind
 - **Wizard cantrips:** Mage Hand, Prestidigitation, Minor Illusion
+- **Wizard prepared spells:** Shield, Misty Step, Web
 - **Spellbook:** Find Familiar, Grease, Shield, Silvery Barbs, Gift of Alacrity, Absorb Elements, Invisibility, Misty Step, Shadow Blade, Vortex Warp, Web

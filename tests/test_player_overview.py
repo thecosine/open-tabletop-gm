@@ -134,9 +134,42 @@ class CanonicalProjectionTests(unittest.TestCase):
             spell["category"] == "cantrip" for spell in bard["spells"][:2]
         ))
         self.assertNotIn("category", bard["spells"][2])
+        self.assertEqual(
+            [spell["name"] for spell in wizard["spells"] if spell.get("category") == "prepared"],
+            ["Shield", "Misty Step", "Web"],
+        )
         self.assertTrue(all(
-            spell.get("category") == "spellbook" for spell in wizard["spells"][3:]
+            spell.get("category") == "spellbook" for spell in wizard["spells"][6:]
         ))
+
+    def test_wizard_spellbook_does_not_imply_prepared_state(self):
+        text = """# Example
+
+## Identity
+- **Class:** Wizard 3 (Scribe)
+
+## Spellcasting
+- **Wizard:** DC 13, attack +5
+- **Wizard cantrips:** Mage Hand
+- **Spellbook:** Shield, Web
+"""
+        wizard = self.overview.project_overview_text(text)["spellcasting"]["sources"][0]
+        self.assertEqual(wizard["spells"], [
+            {"name": "Mage Hand", "category": "cantrip"},
+            {"name": "Shield", "category": "spellbook"},
+            {"name": "Web", "category": "spellbook"},
+        ])
+        self.assertFalse(any(spell.get("category") == "prepared" for spell in wizard["spells"]))
+
+    def test_wizard_spell_can_retain_prepared_and_spellbook_membership(self):
+        projected = self.overview.project_player_overview(CAMPAIGN, "Mythlon Bladesinger")
+        wizard = projected["spellcasting"]["sources"][1]
+        shield_records = [spell for spell in wizard["spells"] if spell["name"] == "Shield"]
+        self.assertEqual(shield_records, [
+            {"name": "Shield", "category": "prepared"},
+            {"name": "Shield", "category": "spellbook"},
+        ])
+        self.assertTrue(all(set(spell) == {"name", "category"} for spell in shield_records))
 
     def test_sassafras_projects_explicit_prepared_levels_and_domain_source(self):
         projected = self.overview.project_player_overview(CAMPAIGN, "Sassafras Silverleaf")

@@ -102,6 +102,44 @@ class SpellsDashboardTests(unittest.TestCase):
             self.assertIn(label, labels)
         self.assertNotIn("Ritual", renderer + rows + labels)
 
+    def test_wizard_prepared_spells_remain_visible_outside_spellbook(self):
+        renderer = _function_source("_renderDashboardSpells", "_setDashboardTab")
+        self.assertIn("const visibleSpells = []", renderer)
+        self.assertIn("else visibleSpells.push(spell)", renderer)
+        self.assertIn("visibleSpells.forEach(spell =>", renderer)
+        self.assertIn("isWizard && spell.category === 'prepared' ? 'prepared'", renderer)
+        self.assertIn("key === 'prepared' ? 'Prepared spells'", renderer)
+        self.assertLess(renderer.index("_appendSpellRows(section, group)"), renderer.index("document.createElement('details')"))
+
+    def test_wizard_spellbook_is_a_collapsed_counted_disclosure(self):
+        renderer = _function_source("_renderDashboardSpells", "_setDashboardTab")
+        self.assertIn("isWizard && spell.category === 'spellbook'", renderer)
+        self.assertIn("document.createElement('details')", renderer)
+        self.assertIn("document.createElement('summary')", renderer)
+        self.assertIn("summary.textContent = `Spellbook · ${countLabel}`", renderer)
+        self.assertNotIn("disclosure.open", renderer)
+        self.assertNotIn("setAttribute('open'", renderer)
+
+    def test_spellbook_uses_native_keyboard_and_screen_reader_semantics(self):
+        renderer = _function_source("_renderDashboardSpells", "_setDashboardTab")
+        self.assertIn("summary.setAttribute('aria-label', `${source.name} spellbook, ${countLabel}`)", renderer)
+        self.assertIn(".dashboard-spellbook-summary:focus-visible", SOURCE)
+        self.assertNotIn("summary.addEventListener", renderer)
+
+    def test_expanded_spellbook_marks_explicitly_prepared_members(self):
+        renderer = _function_source("_renderDashboardSpells", "_setDashboardTab")
+        rows = _function_source("_appendSpellRows", "_spellSlotGroups")
+        self.assertIn("spell.category === 'prepared'", renderer)
+        self.assertIn("_appendSpellRows(disclosure, spellbook, preparedNames)", renderer)
+        self.assertIn("spell.category === 'spellbook' && preparedNames.has", rows)
+        self.assertIn("categories.push('Prepared')", rows)
+
+    def test_bard_and_cleric_keep_the_existing_rendering_path(self):
+        renderer = _function_source("_renderDashboardSpells", "_setDashboardTab")
+        self.assertEqual(renderer.count("const isWizard ="), 1)
+        self.assertIn("else visibleSpells.push(spell)", renderer)
+        self.assertIn("spell.level != null ? `level-${spell.level}` : 'other'", renderer)
+
     def test_spell_text_uses_safe_dom_apis(self):
         start = SOURCE.index("function _spellcastingData")
         end = SOURCE.index("function _setDashboardTab")
