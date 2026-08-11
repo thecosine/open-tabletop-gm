@@ -257,8 +257,7 @@ class PeopleFrontendContractTests(unittest.TestCase):
         self.assertIn("_peopleCache = [];", self.source)
         self.assertIn("_peopleMeta = {};", self.source)
         clear_block = self.source.split("if (payload.clear)", 1)[1].split("if (payload.replay_batch)", 1)[0]
-        self.assertIn("_peopleCache = []", clear_block)
-        self.assertIn("_peopleMeta = {}", clear_block)
+        self.assertIn("_clearCampaignClientState()", clear_block)
 
     def test_backend_refreshes_people_at_startup_and_campaign_registration(self):
         backend = (DISPLAY / "gm-display-app.py").read_text(encoding="utf-8")
@@ -266,8 +265,15 @@ class PeopleFrontendContractTests(unittest.TestCase):
         self.assertIn("def _refresh_campaign_people(campaign: str)", backend)
         self.assertIn('_current_stats["people"]', backend)
         self.assertIn('_current_stats["people_meta"]', backend)
-        self.assertGreaterEqual(backend.count("_refresh_campaign_people("), 4)
-        self.assertIn("_install_people_snapshot(_empty_people_snapshot(campaign))", backend)
+        self.assertGreaterEqual(backend.count("_refresh_campaign_people("), 3)
+        transition = backend.split("def _prepare_campaign_transition", 1)[1].split(
+            "def _commit_active_campaign", 1
+        )[0]
+        self.assertIn("_build_people_snapshot", transition)
+        registration = backend.split('if "campaign" in data:', 1)[1].split(
+            "# XP dispositions", 1
+        )[0]
+        self.assertIn('"people": list(prepared["people"].get("people", []))', registration)
         player_refresh = backend.split('if "players" in data:', 2)[2].split(
             "# autorun_waiting", 1
         )[0]

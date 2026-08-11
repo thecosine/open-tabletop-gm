@@ -35,11 +35,41 @@ python3 $SKILL/scripts/combat.py init '<JSON>'
 # Reprint tracker from saved state
 python3 $SKILL/scripts/combat.py tracker '<JSON>' <round_num>
 
-# Resolve a single attack
-python3 $SKILL/scripts/combat.py attack --atk 10 --ac 20 --dmg 2d6+5
+# Initialize the authoritative store at the canonical campaign path.
+python3 $SKILL/scripts/combat.py store-init \
+  --store $SKILL/campaigns/CAMPAIGN/combat-state.json \
+  --campaign CAMPAIGN --actors-file /path/to/actor-sources.json --repo-root $SKILL
+
+# Resolve every weapon attack through campaign-scoped typed ingress.
+# The request identifies a target and registered profile but supplies no paths, AC, HP, or damage mechanics.
+python3 $SKILL/scripts/combat.py ingress \
+  --request-file /path/to/typed-attack-request.json \
+  --repo-root $SKILL
+
+# Emit a typed idempotent lifecycle boundary.
+python3 $SKILL/scripts/combat.py lifecycle-ingress \
+  --request-file /path/to/typed-lifecycle-request.json --repo-root $SKILL
+
+# Inspect or recover durable reconciliation work. These derive the canonical store from campaign.
+python3 $SKILL/scripts/combat.py outbox-list --campaign CAMPAIGN --repo-root $SKILL
+python3 $SKILL/scripts/combat.py outbox-process --campaign CAMPAIGN --repo-root $SKILL \
+  --expected-revision N [--dry-run]
+python3 $SKILL/scripts/combat.py reconcile-status --campaign CAMPAIGN --repo-root $SKILL
 ```
 
-`init` outputs a `STATE_JSON:` line — store in `state.md → ## Active Combat` between turns.
+`init` prints initiative order. Record only the authoritative store path, combat
+ID, and revision in `state.md → ## Active Combat`.
+
+Every weapon attack uses `combat.py ingress` and the schema-versioned transaction
+store. `dice.py` is only for checks, saves, initiative, standalone damage, and
+experimentation. The ingress derives campaign paths, loads target AC and damage
+mechanics from authority, and atomically persists attack/resource results plus
+durable target, resource, display, and archive intents.
+
+Use `combat.py lifecycle-ingress` for `start_turn`, `end_turn`, `next_round`,
+`short_rest`, `long_rest`, and `combat_end`. Detached
+runtime resets are forbidden. Switching weapons, making an off-hand attack, or
+spending a Bonus Action is never a reset boundary.
 
 ---
 

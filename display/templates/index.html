@@ -8539,6 +8539,15 @@ _dmHelpBtn.addEventListener('click', async () => {
 // Read token from meta tag injected by Flask (LAN mode)
 const _dndTokenMeta = document.querySelector('meta[name="dnd-token"]');
 const _dndToken = _dndTokenMeta ? _dndTokenMeta.getAttribute('content') : null;
+let _combatToken = null;
+let _combatTokenGeneration = -1;
+let _combatClaimGeneration = -1;
+let _combatCampaign = '';
+let _combatGeneration = 0;
+let _combatBootstrap = null;
+let _combatBootstrapFailureGeneration = -1;
+let _combatSseGeneration = -1;
+let _combatSseCampaign = '';
 
 // Persistent device ID — survives page refreshes, identifies this browser for DM approval
 // crypto.randomUUID() requires a secure context (HTTPS/localhost); fall back to
@@ -8560,6 +8569,194 @@ function _authHeaders() {
     ...(_dndToken    ? { 'X-DND-Token':   _dndToken  } : {}),
     ...(_deviceId    ? { 'X-DND-Device':  _deviceId  } : {}),
   };
+}
+
+function _combatHeaders() {
+  return {
+    ..._authHeaders(),
+    ...(_combatToken ? { 'X-DND-Combat-Token': _combatToken } : {}),
+  };
+}
+
+function _hasCurrentCombatCapability() {
+  return Boolean(_combatToken) && _combatTokenGeneration === _combatGeneration;
+}
+
+function _canBootstrapCombatDevice() {
+  const hostname = String(location.hostname || '').toLowerCase();
+  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' ||
+    hostname === '::1' || hostname === '[::1]';
+  return loopback && !_streamChar && _sp.get('view') !== 'input' &&
+    _combatClaimGeneration !== _combatGeneration;
+}
+
+async function _combatFetch(path, options = {}, retry = true) {
+  const generation = _combatGeneration;
+  const response = await fetch(path, {...options, headers: _combatHeaders()});
+  if ((response.status === 401 || response.status === 403) && retry && generation === _combatGeneration) {
+    _combatToken = null;
+    _combatTokenGeneration = -1;
+    _combatBootstrap = null;
+    if (!_canBootstrapCombatDevice()) return response;
+    const grant = await _bootstrapCombatDevice();
+    if (!grant || generation !== _combatGeneration) return response;
+    return _combatFetch(path, options, false);
+  }
+  return response;
+}
+
+function _resetCombatProjection() {
+  _combatProjectionId = '';
+  _combatProjectionRevision = -1;
+  updateStats({turn_order: null, encounter_actors: []});
+}
+
+function _beginCombatCampaign(campaign, force = false) {
+  const next = String(campaign || '');
+  if (!force && next === _combatCampaign) return _combatGeneration;
+  _combatCampaign = next;
+  _combatGeneration += 1;
+  _combatToken = null;
+  _combatTokenGeneration = -1;
+  _combatClaimGeneration = -1;
+  _combatBootstrap = null;
+  _combatBootstrapFailureGeneration = -1;
+  _resetCombatProjection();
+  return _combatGeneration;
+}
+
+// Typed combat is initialized for every display mode. It is intentionally not
+// owned by the input composer or dice pad, which may not exist in TV mode.
+window.openTabletopCombat = {
+  attack: async (payload) => {
+    const generation = _combatGeneration;
+    const response = await _combatFetch('/combat/attack', {
+      method: 'POST', body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Typed attack rejected');
+    if (generation === _combatGeneration) await window.openTabletopCombat.projection().catch(() => null);
+    return body;
+  },
+  lifecycle: async (payload) => {
+    const generation = _combatGeneration;
+    const response = await _combatFetch('/combat/lifecycle', {
+      method: 'POST', body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Typed lifecycle rejected');
+    if (generation === _combatGeneration) await window.openTabletopCombat.projection().catch(() => null);
+    return body;
+  },
+  projection: async () => {
+    const generation = _combatGeneration;
+    const response = await _combatFetch('/combat/projection');
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Combat projection unavailable');
+    if (generation !== _combatGeneration) return null;
+    if (body.status === 'idle') {
+      _resetCombatProjection();
+      return null;
+    }
+    body.client_generation = generation;
+    window.dispatchEvent(new CustomEvent('open-tabletop-combat-projection', {detail: body}));
+    return body;
+  },
+  authorizeDevice: async (payload) => {
+    const response = await _combatFetch('/combat/device/authorize', {
+      method: 'POST', body: JSON.stringify(payload)
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || 'Combat authorization rejected');
+    return body;
+  },
+  revokeDevice: async (deviceId) => {
+    const response = await _combatFetch('/combat/device/revoke', {
+      method: 'POST', body: JSON.stringify({device_id: deviceId})
+    });
+    if (!response.ok) throw new Error('Combat revocation rejected');
+  },
+  installCapability: token => {
+    if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) throw new Error('Invalid combat capability');
+    _combatToken = token;
+    _combatTokenGeneration = _combatGeneration;
+    _combatClaimGeneration = _combatGeneration;
+  },
+  claimCapability: async claim => {
+    if (!window.isSecureContext) throw new Error('Combat capability claims require HTTPS or localhost');
+    if (!claim || typeof claim !== 'object' || typeof claim.campaign !== 'string') {
+      throw new Error('Combat capability claim requires its campaign');
+    }
+    _beginCombatCampaign(claim.campaign, true);
+    window.openTabletopCombat.installCapability(claim.capability_token);
+    return window.openTabletopCombat.projection();
+  }
+};
+
+function _reportCombatBootstrapFailure(error) {
+  if (_combatBootstrapFailureGeneration === _combatGeneration) return;
+  _combatBootstrapFailureGeneration = _combatGeneration;
+  const message = error instanceof Error ? error.message : String(error || 'Combat bootstrap unavailable');
+  console.warn(message);
+  window.dispatchEvent(new CustomEvent('open-tabletop-combat-bootstrap-failed', {
+    detail: {message, remote_claim_supported: window.isSecureContext}
+  }));
+  renderTutorBlock(`WARNING: ${message}. Remote clients need a GM-authorized capability transferred through a trusted channel and claimed over HTTPS.`);
+}
+
+async function _bootstrapCombatDevice() {
+  const generation = _combatGeneration;
+  if (_combatBootstrap && _combatBootstrap.generation === generation) return _combatBootstrap.promise;
+  const promise = (async () => {
+    const response = await fetch('/combat/device/bootstrap', {
+      method: 'POST', headers: _combatHeaders(), body: JSON.stringify({
+        device_id: _deviceId,
+        client_mode: (!_streamChar && _sp.get('view') !== 'input') ? 'gm-display' : 'authorized-client'
+      })
+    });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => ({}));
+      throw new Error(detail.error || `Combat bootstrap rejected (${response.status})`);
+    }
+    const grant = await response.json();
+    if (generation !== _combatGeneration) return null;
+    if (grant.campaign !== _combatCampaign) throw new Error('Stale combat bootstrap campaign');
+    if (generation !== _combatGeneration || !_canBootstrapCombatDevice()) return null;
+    if (typeof grant.capability_token !== 'string' || !/^[0-9a-f]{64}$/.test(grant.capability_token)) {
+      throw new Error('Invalid combat bootstrap capability');
+    }
+    _combatToken = grant.capability_token;
+    _combatTokenGeneration = generation;
+    return grant;
+  })();
+  _combatBootstrap = {generation, promise};
+  try {
+    return await promise;
+  } finally {
+    if (_combatBootstrap && _combatBootstrap.promise === promise) _combatBootstrap = null;
+  }
+}
+
+function _acceptCombatCampaignPayload(payload) {
+  const generation = Number(payload && payload.campaign_generation);
+  const campaign = payload && typeof payload.campaign === 'string' ? payload.campaign : '';
+  const combatCampaign = payload && typeof payload.combat_campaign === 'string' ? payload.combat_campaign : '';
+  if (!Number.isInteger(generation) || generation !== _displayGeneration) return false;
+  if (!campaign || combatCampaign !== campaign) return false;
+  if (_combatSseGeneration === generation && _combatSseCampaign === campaign) return false;
+  _combatSseGeneration = generation;
+  _combatSseCampaign = campaign;
+  _beginCombatCampaign(campaign);
+  if (_hasCurrentCombatCapability()) {
+    window.openTabletopCombat.projection().catch(_reportCombatBootstrapFailure);
+  } else if (_canBootstrapCombatDevice()) {
+    _bootstrapCombatDevice()
+      .then(grant => grant && window.openTabletopCombat?.projection())
+      .catch(_reportCombatBootstrapFailure);
+  } else {
+    _reportCombatBootstrapFailure(new Error('Combat capability claim required'));
+  }
+  return true;
 }
 
 let _actx   = null;
@@ -9587,14 +9784,80 @@ _sidebarBtn.addEventListener('click', () => _setSidebarVisible(!_sidebarVisible)
 
 let evtSource = null;
 let reconnectDelay = 1000;
+let _displayGeneration = -1;
 
 // Phones append ?char=<name> (or ?character=<name>) so the server can route
 // dice-requests to the phone bound to that PC. The TV view passes neither and
 // is treated as the shared display.
 const _sp = new URLSearchParams(location.search);
 const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim();
+let _combatProjectionRevision = -1;
+let _combatProjectionId = '';
+
+function _renderCombatProjection(receipt) {
+  if (receipt && receipt.client_generation !== undefined && receipt.client_generation !== _combatGeneration) return;
+  const projection = receipt && receipt.projection;
+  if (!projection || typeof projection !== 'object') return;
+  const revision = Number(receipt.combat_revision);
+  if (!Number.isInteger(revision)) return;
+  if (_combatProjectionId === receipt.combat_id && revision <= _combatProjectionRevision) return;
+  _combatProjectionId = receipt.combat_id;
+  _combatProjectionRevision = revision;
+  const combatants = projection.combatants || {};
+  const active = projection.active_turn && combatants[projection.active_turn.actor_id];
+  const encounter = Object.entries(combatants)
+    .filter(([, actor]) => actor && (actor.kind === 'enemy' || actor.kind === 'npc'))
+    .map(([id, actor]) => ({
+      id,
+      name: actor.display_name || id,
+      disposition: actor.kind === 'enemy' ? 'hostile' : 'neutral',
+      state: actor.hp && actor.hp.current > 0 ? 'active' : 'defeated',
+      hp_known: Boolean(actor.hp),
+      hp: actor.hp ? {current: actor.hp.current, max: actor.hp.maximum} : null,
+      ac_known: actor.ac != null,
+      ac: actor.ac,
+      conditions: Array.isArray(actor.conditions) ? actor.conditions : []
+    }));
+  const update = {encounter_actors: encounter};
+  const turnUpdate = {};
+  if (Object.prototype.hasOwnProperty.call(projection, 'active_turn')) {
+    turnUpdate.current = active ? active.display_name : null;
+  }
+  if (Number.isInteger(projection.round)) turnUpdate.round = projection.round;
+  if (Object.keys(turnUpdate).length) update.turn_order = turnUpdate;
+  updateStats(update);
+}
+
+function _clearCampaignClientState() {
+  for (const key of Object.keys(_playerData)) delete _playerData[key];
+  _questCache = [];
+  _questMeta = {};
+  _peopleCache = [];
+  _peopleMeta = {};
+  closeQuestModal();
+  document.querySelectorAll('.sb-player, .sb-quest-item').forEach(el => el.remove());
+  const questPanelEl = document.getElementById('sb-quests');
+  if (questPanelEl) questPanelEl.style.display = 'none';
+  const sbEl = document.getElementById('sidebar');
+  if (sbEl) sbEl.classList.remove('has-data');
+  closeDashboard();
+  const turnSectionEl = document.getElementById('sb-turn-section');
+  if (turnSectionEl) turnSectionEl.style.display = 'none';
+  _sidebarBtn.classList.remove('visible');
+  _setSidebarVisible(true);
+  _renderEncounterActors([], null);
+  clearDisplay();
+}
+
+window.addEventListener('open-tabletop-combat-projection', event => {
+  _renderCombatProjection(event.detail);
+});
 
 function connect() {
+  // A reconnect must refresh projection once, but only after this connection
+  // supplies an authoritative campaign/generation envelope.
+  _combatSseGeneration = -1;
+  _combatSseCampaign = '';
   evtSource = new EventSource(_streamChar ? `/stream?character=${encodeURIComponent(_streamChar)}` : '/stream');
 
   evtSource.onopen = () => {
@@ -9604,6 +9867,15 @@ function connect() {
   evtSource.onmessage = (e) => {
     let payload;
     try { payload = JSON.parse(e.data); } catch { return; }
+    const incomingGeneration = Number(payload.campaign_generation);
+    if (Number.isInteger(incomingGeneration)) {
+      if (incomingGeneration < _displayGeneration) return;
+      if (incomingGeneration > _displayGeneration) {
+        _displayGeneration = incomingGeneration;
+        _clearCampaignClientState();
+      }
+    }
+    if (payload.campaign_reset) _clearCampaignClientState();
 
     if (payload.dice_request && typeof window._onDiceRequest === 'function') {
       window._onDiceRequest(payload.dice_request);
@@ -9614,6 +9886,14 @@ function connect() {
     if (payload.dice_pending !== undefined) {
       _updateDicePendingBadge(payload.dice_pending);
     }
+    if (payload.combat_recovery) {
+      const recovery = payload.combat_recovery;
+      if (recovery.projection === 'fresh' && window.openTabletopCombat) {
+        window.openTabletopCombat.projection().catch(() => null);
+      }
+      (recovery.warnings || []).forEach(message => renderTutorBlock(`WARNING: ${message}`));
+    }
+    _acceptCombatCampaignPayload(payload);
 
     if (payload.stats) {
       updateStats(payload.stats);
@@ -9674,26 +9954,7 @@ function connect() {
       _onDeviceDenied(payload.device_denied);
     }
     if (payload.clear) {
-      // Wipe sidebar player data and DOM
-      for (const key of Object.keys(_playerData)) delete _playerData[key];
-      _questCache = [];
-      _questMeta = {};
-      _peopleCache = [];
-      _peopleMeta = {};
-      closeQuestModal();
-      document.querySelectorAll('.sb-player').forEach(el => el.remove());
-      document.querySelectorAll('.sb-quest-item').forEach(el => el.remove());
-      const questPanelEl = document.getElementById('sb-quests');
-      if (questPanelEl) questPanelEl.style.display = 'none';
-      const sbEl = document.getElementById('sidebar');
-      if (sbEl) sbEl.classList.remove('has-data');
-      closeDashboard();
-      const turnSectionEl = document.getElementById('sb-turn-section');
-      if (turnSectionEl) turnSectionEl.style.display = 'none';
-      _sidebarBtn.classList.remove('visible');
-      _setSidebarVisible(true);   // reset to visible for next campaign
-      _renderEncounterActors([], null);
-      clearDisplay();
+      _clearCampaignClientState();
     }
     if (payload.replay_batch) {
       renderReplayBatch(payload.replay_batch);
@@ -10329,6 +10590,7 @@ function _initDicePad() {
     }
   }
   window._onDiceRequestCancelled = _onDiceRequestCancelled;
+
 }
 </script>
 </body>
