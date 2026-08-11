@@ -57,6 +57,7 @@ except Exception:
     _SRD_AVAILABLE = False
 
 import combat_ingress as _combat_ingress
+import campaign_time as _campaign_time
 
 from paths import (
     campaign_dir as _campaign_dir,
@@ -1578,6 +1579,24 @@ def _active_campaign() -> str:
         return ""
 
 
+def _campaign_timestamp(data: dict | None = None) -> str | None:
+    """Resolve a new timestamp or preserve an explicit replay timestamp/absence."""
+    if data is not None and "campaign_timestamp" in data:
+        supplied = data["campaign_timestamp"]
+        if supplied is None:
+            return None
+        if not isinstance(supplied, str) or not re.fullmatch(r"\[\d{4,}-\d{2}-\d{2} \d{2}:\d{2}\]", supplied):
+            raise ValueError("campaign_timestamp is invalid")
+        return supplied
+    campaign = _active_campaign()
+    if not campaign:
+        return None
+    try:
+        return _campaign_time.current_timestamp(_find_campaign(campaign), initialize=False)
+    except (OSError, ValueError):
+        return None
+
+
 def _stats_for_display(stats: dict, campaign: str = "") -> dict:
     """Copy live stats and attach canonical character summaries for browser use."""
     snapshot = dict(stats)
@@ -2137,6 +2156,12 @@ def chunk():
         }
         xp_event = {key: incoming[key] for key in public_keys if key in incoming}
         log_entry = {"xp_award": xp_event}
+        try:
+            timestamp = _campaign_timestamp(data)
+        except ValueError as exc:
+            return str(exc), 400
+        if timestamp:
+            log_entry["campaign_timestamp"] = timestamp
         with _text_log_lock:
             _text_log.append(log_entry)
         with _tail_lock:
@@ -2160,6 +2185,13 @@ def chunk():
             "text": name,
         }
         log_entry: dict = dict(payload)
+        try:
+            timestamp = _campaign_timestamp(data)
+        except ValueError as exc:
+            return str(exc), 400
+        if timestamp:
+            payload["campaign_timestamp"] = timestamp
+            log_entry["campaign_timestamp"] = timestamp
         if is_milestone_award and data.get("reason"):
             payload["reason"] = str(data["reason"]).strip()[:240]
             log_entry["reason"] = payload["reason"]
@@ -2194,6 +2226,12 @@ def chunk():
         return "", 204
 
     payload: dict = {"text": cleaned}
+    try:
+        timestamp = _campaign_timestamp(data)
+    except ValueError as exc:
+        return str(exc), 400
+    if timestamp:
+        payload["campaign_timestamp"] = timestamp
 
     if is_player_ooc:
         payload["player_ooc"] = data["player_ooc"]
@@ -2226,6 +2264,8 @@ def chunk():
 
     # Store full typed payload so live and replay dispatch use the same channel.
     log_entry: dict = {"text": cleaned}
+    if timestamp:
+        log_entry["campaign_timestamp"] = timestamp
     if is_player_ooc:
         log_entry["player_ooc"] = data["player_ooc"]
     elif is_gm_ooc:

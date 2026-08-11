@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 try:  # Package import and direct script execution are both supported.
+    from . import campaign_time
     from . import paired_pact_runtime as pact_runtime
 except ImportError:  # pragma: no cover - exercised by subprocess tests
+    import campaign_time
     import paired_pact_runtime as pact_runtime
 
 
@@ -178,6 +180,7 @@ def _validate_operation(operation: Any, intent_name: str) -> dict[str, Any]:
             "destination_filesystem_identity",
         },
         "display": {"event_id", "minimum_revision"},
+        "campaign_time": {"event_id", "seconds", "reason"},
         "archive": {"event_id", "final_revision", "summary", "summary_sha256", "expected_archive_state"},
     }
     if not isinstance(operation, dict) or operation.get("operation_type") not in extra:
@@ -280,6 +283,14 @@ def _validate_operation(operation: Any, intent_name: str) -> dict[str, Any]:
             or operation["summary_sha256"] != canonical_hash(operation["summary"])
         ):
             raise CombatTransactionError("archive operation values are invalid")
+    elif operation_type == "campaign_time":
+        if (
+            not isinstance(operation["event_id"], str) or not operation["event_id"]
+            or isinstance(operation["seconds"], bool) or not isinstance(operation["seconds"], int)
+            or operation["seconds"] <= 0 or not isinstance(operation["reason"], str)
+            or not operation["reason"].strip()
+        ):
+            raise CombatTransactionError("campaign time operation values are invalid")
     return operation
 
 
@@ -305,6 +316,7 @@ def _validate_receipt_values(
             "event_id", "combat_revision", "projection_sha256", "projection",
             "destination_filesystem_identity",
         },
+        "campaign_time": {"event_id", "seconds", "reason", "before", "after", "replayed"},
         "archive": {
             "event_id", "final_revision", "summary_sha256", "summary", "archive_file_sha256",
             "destination_filesystem_identity",
@@ -390,6 +402,14 @@ def _validate_receipt_values(
         or not _valid_filesystem_identity(receipt["destination_filesystem_identity"])
     ):
         raise DestinationConflictError("display receipt semantic conflict")
+    if receipt_type == "campaign_time" and (
+        receipt["event_id"] != operation["event_id"]
+        or receipt["seconds"] != operation["seconds"] or receipt["reason"] != operation["reason"]
+        or isinstance(receipt["before"], bool) or not isinstance(receipt["before"], int)
+        or receipt["after"] != receipt["before"] + operation["seconds"]
+        or not isinstance(receipt["replayed"], bool)
+    ):
+        raise DestinationConflictError("campaign time receipt semantic conflict")
     if receipt_type == "archive" and (
         receipt["event_id"] != operation["event_id"]
         or receipt["final_revision"] != operation["final_revision"]
@@ -1014,6 +1034,7 @@ def validate_store(
                 f"combat-state:{state['combat_id']}:{operation.get('target_id')}" if operation["operation_type"] == "target"
                 else state["actors"][operation["actor_id"]]["character_state_path"] if operation["operation_type"] in {"persistent_resource", "persistent_resource_checkpoint"}
                 else os.path.join(campaign_directory, "combat-display.json") if operation["operation_type"] == "display"
+                else os.path.join(campaign_directory, "campaign-time.json") if operation["operation_type"] == "campaign_time"
                 else os.path.join(campaign_directory, "combat-archive", f"{state['combat_id']}.summary.json")
             )
             if operation["destination_identity"] != expected_destination:
@@ -1051,7 +1072,7 @@ def validate_store(
     for event in state["outbox"].values():
         for name, intent in event["intents"].items():
             operation = intent["operation"]
-            if intent["state"] == "delivered" and operation["operation_type"] in {"target", "archive"}:
+            if intent["state"] == "delivered" and operation["operation_type"] in {"target", "campaign_time", "archive"}:
                 if operation["operation_id"] not in state["applied_operations"]:
                     raise CombatTransactionError(f"delivered intent lacks destination receipt: {name}")
     if validate_destinations:
@@ -1106,6 +1127,21 @@ def _validate_delivered_destinations(
                     raise DestinationConflictError("delivered archive receipt does not match destination bytes")
                 if _filesystem_identity(Path(operation["destination_identity"]), "delivered combat archive") != receipt["destination_filesystem_identity"]:
                     raise DestinationConflictError("delivered archive destination identity changed")
+            elif operation["operation_type"] == "campaign_time":
+                receipt = state["applied_operations"].get(operation["operation_id"])
+                try:
+                    record = campaign_time.event_record(state["campaign_directory"], operation["operation_id"])
+                except campaign_time.CampaignTimeError as exc:
+                    raise DestinationConflictError(str(exc)) from exc
+                if (
+                    not isinstance(receipt, dict)
+                    or record.get("seconds") != operation["seconds"]
+                    or record.get("reason") != operation["reason"]
+                    or record.get("before") != receipt.get("before")
+                    or record.get("after") != receipt.get("after")
+                    or record.get("revision", -1) < receipt.get("destination_after_revision", 0)
+                ):
+                    raise DestinationConflictError("delivered campaign time receipt does not match destination")
     for actor_id, (_, operation) in latest_resources.items():
         binding = state["resource_bindings"][actor_id]
         data, character = read_bounded(Path(operation["destination_identity"]), "latest persistent destination")
@@ -2212,6 +2248,21 @@ def lifecycle_transaction(
             "minimum_revision": state["revision"],
         })
         intents: dict[str, dict[str, Any]] = {"display": _new_intent(display_operation)}
+        time_seconds = {"next_round": 6, "short_rest": 3600, "long_rest": 28800}.get(event_type)
+        if time_seconds is not None:
+            time_operation = _seal_operation({
+                "schema_version": 1,
+                "operation_type": "campaign_time",
+                "operation_id": f"{event_id}:campaign-time",
+                "binding_id": "campaign_time",
+                "combat_id": state["combat_id"],
+                "destination_identity": os.path.join(state["campaign_directory"], "campaign-time.json"),
+                "source_transaction_revision": state["revision"],
+                "event_id": event_id,
+                "seconds": time_seconds,
+                "reason": event_type.replace("_", " "),
+            })
+            intents["campaign_time"] = _new_intent(time_operation)
         if event_type in {"short_rest", "long_rest", "combat_end"}:
             for pact_actor, runtime_state in state["pact_runtime"].items():
                 binding = state["resource_bindings"].get(pact_actor)
@@ -2560,6 +2611,33 @@ def _apply_archive_operation(state: dict[str, Any], operation: dict[str, Any]) -
     return receipt
 
 
+def _apply_campaign_time_operation(state: dict[str, Any], operation: dict[str, Any]) -> dict[str, Any]:
+    operation = _validate_operation(operation, "campaign_time")
+    destination = Path(operation["destination_identity"])
+    canonical = Path(state["campaign_directory"]) / "campaign-time.json"
+    if destination != canonical:
+        raise DestinationConflictError("campaign time destination identity conflict")
+    result = campaign_time.advance(
+        destination.parent,
+        operation["seconds"],
+        event_id=operation["operation_id"],
+        reason=operation["reason"],
+    )
+    receipt = _make_receipt(operation, "campaign_time", {
+        "destination_before_revision": result["before"],
+        "destination_after_revision": result["revision"],
+        "event_id": operation["event_id"],
+        "seconds": operation["seconds"],
+        "reason": operation["reason"],
+        "before": result["before"],
+        "after": result["after"],
+        "replayed": result["replayed"],
+    }, _commitment_key(state))
+    state["applied_operations"][operation["operation_id"]] = copy.deepcopy(receipt)
+    state["revision"] += 1
+    return receipt
+
+
 def process_outbox(
     store_path: Path,
     expected_revision: int,
@@ -2588,7 +2666,7 @@ def process_outbox(
         for event in pending:
             ordered_names = ["target"]
             ordered_names.extend(sorted(name for name in event["intents"] if name.startswith("persistent_resource:")))
-            ordered_names.extend(["display", "archive"])
+            ordered_names.extend(["campaign_time", "display", "archive"])
             for name in ordered_names:
                 intent = event["intents"].get(name)
                 if not isinstance(intent, dict) or intent["state"] not in {"pending", "failed"}:
@@ -2612,6 +2690,9 @@ def process_outbox(
                         binding["imported"] = copy.deepcopy(operation["destination_after"])
                         binding["source_revision"] = result["destination_after_revision"]
                         binding["last_reconciliation_id"] = operation["operation_id"]
+                    elif name == "campaign_time":
+                        result = _apply_campaign_time_operation(state, operation)
+                        _persist_locked(store_path, state, writer)
                     elif name == "display":
                         result = _apply_display_operation(state, event, Path(operation["destination_identity"]), writer)
                     else:
@@ -2622,7 +2703,7 @@ def process_outbox(
                     _ack_intent(state, event, name, result.get("destination_after_revision"))
                     _persist_locked(store_path, state, writer)
                     processed.append({"event_id": event["event_id"], "intent": name, "state": "delivered"})
-                except (CombatTransactionError, OSError) as exc:
+                except (CombatTransactionError, campaign_time.CampaignTimeError, OSError) as exc:
                     conflict = isinstance(exc, DestinationConflictError)
                     _block_intent(state, event, name, str(exc), conflict)
                     _persist_locked(store_path, state, writer)

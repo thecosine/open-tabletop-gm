@@ -105,9 +105,9 @@ python3 systems/dnd5e/character.py xp --level 1 --gained 150
 
 ## Rests
 
-**Short rest (1 hour):** Spend any number of Hit Dice; roll each + CON mod → recover that much HP. Second Wind and some class features recharge. Advance time: `calendar.py rest short`
+**Short rest (1 hour):** Spend any number of Hit Dice; roll each + CON mod → recover that much HP. Second Wind and some class features recharge. The `/gm rest` branch owns the single authoritative time advance.
 
-**Long rest (8 hours):** Restore all HP, restore half max Hit Dice (round up), restore all spell slots, restore most features. Advance time: `calendar.py rest long`. Clear tracker state: `tracker.py clear --all`
+**Long rest (8 hours):** Restore all HP, restore half max Hit Dice (round up), restore all spell slots, restore most features. The `/gm rest` branch owns the single authoritative time advance. Clear tracker state: `tracker.py clear --all`.
 
 ---
 

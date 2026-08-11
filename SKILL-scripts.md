@@ -108,28 +108,21 @@ python3 <skill-base>/scripts/tracker.py -c $CAMP clear --all     # also clears d
 ## Calendar Script — `scripts/calendar.py`
 
 ```bash
-# One-time setup (run during /gm new):
-python3 <skill-base>/scripts/calendar.py -c $CAMP init \
-    --date "15 Harvestmoon 1247" \
-    --time "morning" \
-    --months "Frostfall,Deepwinter,Thawmonth,Seedtime,Bloomtide,Highsun,Harvestmoon,Duskfall" \
-    --month-length 30 \
-    --day-names "Sunday,Moonday,Ironday,Windday,Earthday,Fireday,Starday"
+# Safe fixed-calendar setup (run during /gm new and /gm load):
+python3 <skill-base>/scripts/calendar.py -c $CAMP init
 
 # Time advancement
-python3 <skill-base>/scripts/calendar.py -c $CAMP advance 8 hours
-python3 <skill-base>/scripts/calendar.py -c $CAMP advance 2 days
-python3 <skill-base>/scripts/calendar.py -c $CAMP rest short   # +1 hour
-python3 <skill-base>/scripts/calendar.py -c $CAMP rest long    # +8 hours
+python3 <skill-base>/scripts/calendar.py -c $CAMP advance 30 minutes --event-id travel-001
+python3 <skill-base>/scripts/calendar.py -c $CAMP rest short --event-id rest-001
+python3 <skill-base>/scripts/calendar.py -c $CAMP rest long --event-id rest-002
 
 # Query / manual set
 python3 <skill-base>/scripts/calendar.py -c $CAMP now
-python3 <skill-base>/scripts/calendar.py -c $CAMP set "22 Harvestmoon 1247" evening
-python3 <skill-base>/scripts/calendar.py -c $CAMP time night
-python3 <skill-base>/scripts/calendar.py -c $CAMP events
+python3 <skill-base>/scripts/calendar.py -c $CAMP set "0001-03-17 14:30" --event-id set-001
+python3 <skill-base>/scripts/calendar.py -c $CAMP due
 ```
 
-**When to run:** after every rest; after significant travel or time skip; when updating `state.md` date — use `calendar.py set` to keep them in sync.
+The canonical calendar is fixed at 13 months × 28 days and stored as elapsed seconds in campaign-local `campaign-time.json`. Use stable event IDs; combat lifecycle outbox intents own round/rest advancement while combat is active.
 
 ---
 

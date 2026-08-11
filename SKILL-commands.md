@@ -25,6 +25,7 @@ Do NOT run `git init` or any git commands in campaign directories.
 | `/gm attack <typed-json>` | Submit an explicit typed weapon attack through `combat.py ingress`; free text is not mechanically resolved. |
 | `/gm combat lifecycle <typed-json>` | Submit a typed turn/round/rest/combat-end event through `combat.py lifecycle-ingress`. |
 | `/gm rest <short\|long>` | Process a rest. Follow `/gm rest` branch. |
+| `/gm time [<+Xm\|+Xh\|+Xd>\|set YYYY-MM-DD HH:MM]` | Show, advance, or set canonical campaign time through `calendar.py`. |
 | `/gm recap` | Read session-log.md; deliver 3-5 sentence in-character recap. |
 | `/gm world` | Read and display world.md for the current campaign. |
 | `/gm quests` | Read and display active quests from state.md. |
@@ -50,6 +51,7 @@ Do NOT run `git init` or any git commands in campaign directories.
 1. If `[system]` not supplied, ask which game system
 2. **System version selection** — if the chosen system has more than one supported version (consult `systems/<system>/system.md → ## System Versions`), ask which to use. The default if the GM has no preference is whatever the system module declares as default. The chosen value is stamped into `state.md` header as `**System Version:** <value>` at step 13. Skip this step if the system module declares no versions.
 3. Create campaign directory at `~/open-tabletop-gm/campaigns/<name>/characters/`
+   Initialize its deterministic clock with `python3 <skill-base>/scripts/calendar.py -c <name> init` after the campaign directory exists.
 4. Copy blank templates from `systems/<system>/` and `templates/` into the campaign directory
 5. Ask: party size and starting level
 6. **Tone/Genre Wizard** — present all four in one message: tone · magic level · setting type · danger level. Randomise any blank with dice.py.

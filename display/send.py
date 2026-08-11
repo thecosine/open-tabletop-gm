@@ -401,6 +401,11 @@ def main() -> None:
         help="Send an exact player campaign-management message using the META channel")
     parser.add_argument("--gm-meta", action="store_true",
         help="Send the GM's campaign-management response using the META channel")
+    timestamp_group = parser.add_mutually_exclusive_group()
+    timestamp_group.add_argument("--campaign-timestamp", metavar="STAMP",
+        help="Preserve a replay timestamp in [YYYY-MM-DD HH:MM] form")
+    timestamp_group.add_argument("--no-campaign-timestamp", action="store_true",
+        help="Preserve a legacy replay entry without inventing a timestamp")
 
     # ── Dice request (GM → player phones) ────────────────────────────────────
     parser.add_argument("--dice-request", action="store_true",
@@ -470,6 +475,12 @@ def main() -> None:
              "Surfaces a clear stderr line on mismatch — use during dev/debug.")
 
     args = parser.parse_args()
+
+    def attach_timestamp(payload: dict) -> None:
+        if args.campaign_timestamp is not None:
+            payload["campaign_timestamp"] = args.campaign_timestamp
+        elif args.no_campaign_timestamp:
+            payload["campaign_timestamp"] = None
 
     # Three categories of flags drive whether to read stdin:
     #   1. Content flags (--player/--npc/--dice/--tutor/--action): body REQUIRED.
@@ -601,7 +612,9 @@ def main() -> None:
         if xp_event["status"] not in allowed_statuses:
             print(f"send.py: unsupported XP status: {xp_event['status']}", file=sys.stderr)
             sys.exit(2)
-        _post(FLASK_URL, json.dumps({"xp_award": xp_event}).encode("utf-8"), token)
+        xp_body = {"xp_award": xp_event}
+        attach_timestamp(xp_body)
+        _post(FLASK_URL, json.dumps(xp_body).encode("utf-8"), token)
 
     # ── Milestone award/spend (generic — system-agnostic) ────────────────────
     # The label argument lets a system module map this to system-specific
@@ -620,6 +633,7 @@ def main() -> None:
         name = args.milestone_award.strip()
         label = (args.milestone_label or "Milestone").strip()
         award_body: dict = {"milestone_award": name, "text": name, "label": label}
+        attach_timestamp(award_body)
         if args.milestone_reason:
             award_body["reason"] = args.milestone_reason.strip()
         _post(FLASK_URL, json.dumps(award_body).encode(), token)
@@ -631,6 +645,7 @@ def main() -> None:
         name = args.milestone_spend.strip()
         label = (args.milestone_label or "Milestone").strip()
         spend_body: dict = {"milestone_spend": name, "text": name, "label": label}
+        attach_timestamp(spend_body)
         _post(FLASK_URL, json.dumps(spend_body).encode(), token)
         _post(STATS_URL, json.dumps({
             "players": [{"name": name, "_milestone_dec": label}]
@@ -663,6 +678,7 @@ def main() -> None:
     # the per-campaign text log so late-connecting browsers see the right session tail.
     if args.set_campaign:
         payload: dict = {"campaign": args.set_campaign}
+        attach_timestamp(payload)
         if text.strip():
             payload["text"] = text
             # Attach any message-type flags
@@ -701,6 +717,7 @@ def main() -> None:
         )
         for chunk in chunks:
             payload = {"text": chunk}
+            attach_timestamp(payload)
             if args.player_ooc:
                 payload["player_ooc"] = args.player_ooc
             elif args.gm_ooc:

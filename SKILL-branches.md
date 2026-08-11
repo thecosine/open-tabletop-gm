@@ -38,6 +38,8 @@ Skip this step entirely if `display=OFF`.
    - `action` key present → `send.py --action <name>` with text via stdin
    - none of the above → `send.py` with text via stdin (plain narration)
 
+   Preserve timestamp history on every replay send: if the entry has `campaign_timestamp`, add `--campaign-timestamp "<value>"`; otherwise add `--no-campaign-timestamp`. Never assign the current time to a legacy tail entry.
+
    Send entries in array order. The display will render them as the previous session's last exchanges, restoring continuity for any reconnecting browser.
 
 **Step 3 — System-version migration check** (legacy-campaign backwards compat):
@@ -57,6 +59,12 @@ python3 <skill-base>/scripts/migrate_system_version.py <name> --version <chosen>
 The migrator backs up `state.md` to `state.md.backup-pre-system-version-<timestamp>` before writing. Idempotent — safe to re-run.
 
 Skip this step if exit 0 or if the system declares no versions.
+
+**Step 3.5 — Initialize or migrate campaign time:**
+```
+python3 <skill-base>/scripts/calendar.py -c <name> init
+```
+This is idempotent. A compatible legacy `calendar.json` migrates its numeric current date without rewriting the legacy file. If an old custom date cannot map to the fixed 13×28 calendar, stop and ask the GM for `/gm time set YYYY-MM-DD HH:MM`; never invent an epoch.
 
 **Step 4 — Read these three files:**
 1. `~/open-tabletop-gm/campaigns/<name>/state.md`
@@ -189,6 +197,7 @@ Each player message during an active session:
 3. If and only if the player clearly expresses persistent equipment-management intent, translate it into strict JSON and run `scripts/equipment_action.py`. Normalize `swap` to `replace`; use stable IDs when known; ask for clarification on ambiguity. Do not run it for ordinary narration such as `draw`, `fire`, `attack`, `aim`, `hold`, `fighting stance`, or `use my off-hand weapon`. Never infer attunement.
 4. If and only if the player explicitly says `attune`, `unattune`, `end attunement`, `break attunement`, `replace attunement`, or `swap attunement`, translate the intent into strict JSON and run `scripts/attunement_action.py`. Do not run it for `put on`, `wear`, `draw`, `use`, `activate`, `examine`, `aim`, or `attack`. Attunement never changes equipment or item location. A question asking which items are attuned is read-only: answer from the validated projected inventory without invoking either action command. Equipment, attunement, and persistent inventory actions remain separate.
 5. Resolve the action narratively
+   During this same GM/model turn, emit structured duration metadata only when the fiction establishes it. An estimate is distinct from elapsed time: record `{"estimate_id":"...","estimate_minutes":30,"reason":"travel"}` with `calendar.py hint` but do not advance. When a later explicit action consumes that estimate, run `calendar.py consume` with a stable event ID. A clearly completed one-minute action, ten-minute ritual, wait, sleep, or travel may directly run one local `calendar.py advance` event. Ambiguous statements never advance time, and no separate model call is made for arithmetic.
 6. If dice are needed: read `scripts/general.md` → run `dice.py` → narrate result
 7. If display running: send narration via `send.py` (bundle all stat flags in one call). Include an inventory command's confirmation or controlled error when one was run.
 8. If HP/conditions/slots changed: update display with the relevant `push_stats.py` partial flags
@@ -231,12 +240,20 @@ Each turn in combat:
 ## `/gm rest <short|long>`
 
 1. Read `scripts/general.md` (calendar.py) + `scripts/combat.md` (tracker.py)
-2. Follow rest procedure from `systems/<system>/system.md`
+2. Follow the system's resource/HP rest procedure; its duration is owned only by the next applicable time step
 3. Run `tracker.py clear` (expired conditions/effects)
-4. Run `calendar.py rest short|long`
+4. If no authoritative combat state is active, run `calendar.py rest short|long --event-id <stable-rest-id>` exactly once
 5. Update state.md in-world date
 6. If display running: `push_stats.py --world-time` + HP/slot updates
-7. If authoritative combat state is active, emit the matching typed `short_rest` or `long_rest` through `combat.py lifecycle-ingress`, then run `outbox-process`; it restores store-owned Pact resources and reconciles them to persistent authority with compare-and-swap.
+7. If authoritative combat state is active, emit the matching typed `short_rest` or `long_rest` through `combat.py lifecycle-ingress`, then run `outbox-process`; its durable outbox advances campaign time and restores store-owned Pact resources exactly once. Do not also run `calendar.py rest`.
+
+## `/gm time [argument]`
+
+1. Resolve the active campaign directory; never use display state as time authority.
+2. No argument: run `calendar.py -c <campaign> now`.
+3. `+Xm`, `+Xh`, or `+Xd`: run `calendar.py -c <campaign> advance X minutes|hours|days --event-id <stable-id>`.
+4. `set YYYY-MM-DD HH:MM`: run `calendar.py -c <campaign> set "YYYY-MM-DD HH:MM" --event-id <stable-id>`.
+5. Return the script's canonical numeric timestamp. Arithmetic is always local.
 
 ---
 
