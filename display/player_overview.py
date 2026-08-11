@@ -147,7 +147,7 @@ def _gestalt_identity(raw_class: str) -> dict[str, Any] | None:
         match.group("base").casefold(): match.group("subclass").strip()
         for match in _GESTALT_PART_RE.finditer(raw_class)
     }
-    if "rogue" not in parts or "wizard" not in parts or not ({"bard", "warlock"} & parts):
+    if "rogue" not in parts or "wizard" not in parts or not ({"bard", "warlock"} & parts.keys()):
         return {"class": raw_class, "gestalt": True}
 
     wizard = re.sub(r"\s+Magic$", "", parts["wizard"], flags=re.IGNORECASE)
@@ -275,21 +275,21 @@ def _explicit_groups(sections: dict[str, list[str]], overview: dict[str, Any]) -
         overview["senses"] = [{"name": "Darkvision"}]
 
 
-def _save_profile(campaign_dir: Path, player_name: str) -> dict[str, Any] | None:
+def _save_profiles(campaign_dir: Path, player_name: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
         if data.get("schema_version") != 1 or not isinstance(data.get("profiles"), list):
-            return None
+            return []
         campaign = campaign_dir.name.casefold()
         character = player_name.strip().casefold()
-        return next((
+        return [
             profile for profile in data["profiles"]
             if isinstance(profile, dict)
             and str(profile.get("campaign") or "").casefold() == campaign
             and str(profile.get("character") or "").casefold() == character
-        ), None)
+        ]
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return None
+        return []
 
 
 def _ability_modifiers(sections: dict[str, list[str]]) -> dict[str, int]:
@@ -452,11 +452,13 @@ def project_player_overview(campaign_dir: str | Path, player_name: str) -> dict[
         path = _character_file(Path(campaign_dir), player_name)
         if path is None:
             return {}
-        overview = project_overview_text(path.read_text(encoding="utf-8", errors="replace"))
-        profile = _save_profile(Path(campaign_dir), player_name)
-        configured_saves = compute_configured_saving_throws(
-            path.read_text(encoding="utf-8", errors="replace"), profile
-        )
+        text = path.read_text(encoding="utf-8", errors="replace")
+        overview = project_overview_text(text)
+        configured_saves = next((
+            saves
+            for profile in _save_profiles(Path(campaign_dir), player_name)
+            if (saves := compute_configured_saving_throws(text, profile))
+        ), [])
         if configured_saves:
             overview["saving_throws"] = _merge_saving_throws(
                 overview.get("saving_throws"), configured_saves

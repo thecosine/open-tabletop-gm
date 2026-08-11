@@ -2684,7 +2684,7 @@ def _overview_script(data: bytes) -> bytes:
             raise MigrationBlocked(f"player overview source is stale: {old}")
         text = text.replace(old, new)
     old = 'if not all(key in parts for key in ("rogue", "wizard", "bard")):'
-    new = 'if "rogue" not in parts or "wizard" not in parts or not ({"bard", "warlock"} & parts):'
+    new = 'if "rogue" not in parts or "wizard" not in parts or not ({"bard", "warlock"} & parts.keys()):'
     if old not in text:
         raise MigrationBlocked("player overview source is stale")
     text = text.replace(old, new, 1)
@@ -2700,6 +2700,54 @@ def _overview_script(data: bytes) -> bytes:
     if old_return not in text:
         raise MigrationBlocked("player overview gestalt projection is stale")
     text = text.replace(old_return, new_return, 1)
+    old_profiles = '''def _save_profile(campaign_dir: Path, player_name: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        if data.get("schema_version") != 1 or not isinstance(data.get("profiles"), list):
+            return None
+        campaign = campaign_dir.name.casefold()
+        character = player_name.strip().casefold()
+        return next((
+            profile for profile in data["profiles"]
+            if isinstance(profile, dict)
+            and str(profile.get("campaign") or "").casefold() == campaign
+            and str(profile.get("character") or "").casefold() == character
+        ), None)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None'''
+    new_profiles = '''def _save_profiles(campaign_dir: Path, player_name: str) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        if data.get("schema_version") != 1 or not isinstance(data.get("profiles"), list):
+            return []
+        campaign = campaign_dir.name.casefold()
+        character = player_name.strip().casefold()
+        return [
+            profile for profile in data["profiles"]
+            if isinstance(profile, dict)
+            and str(profile.get("campaign") or "").casefold() == campaign
+            and str(profile.get("character") or "").casefold() == character
+        ]
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return []'''
+    if old_profiles not in text:
+        raise MigrationBlocked("player overview profile loader is stale")
+    text = text.replace(old_profiles, new_profiles, 1)
+    old_projection = '''        overview = project_overview_text(path.read_text(encoding="utf-8", errors="replace"))
+        profile = _save_profile(Path(campaign_dir), player_name)
+        configured_saves = compute_configured_saving_throws(
+            path.read_text(encoding="utf-8", errors="replace"), profile
+        )'''
+    new_projection = '''        text = path.read_text(encoding="utf-8", errors="replace")
+        overview = project_overview_text(text)
+        configured_saves = next((
+            saves
+            for profile in _save_profiles(Path(campaign_dir), player_name)
+            if (saves := compute_configured_saving_throws(text, profile))
+        ), [])'''
+    if old_projection not in text:
+        raise MigrationBlocked("player overview profile projection is stale")
+    text = text.replace(old_projection, new_projection, 1)
     if "Bardic Inspiration" not in text or "bardic = re.search(" not in text:
         raise MigrationBlocked("generic Bard support was not preserved")
     return text.encode("utf-8")
@@ -2710,22 +2758,26 @@ def _overview_profiles(source: dict[str, Any]) -> dict[str, Any]:
     profiles = value.get("profiles")
     if not isinstance(profiles, list):
         raise MigrationBlocked("overview profile source is malformed")
-    found = 0
-    for profile in profiles:
-        if isinstance(profile, dict) and profile.get("character") == "Mythlon Bladesinger":
-            pillars = profile.get("saving_throw_pillars")
-            if not isinstance(pillars, list):
-                raise MigrationBlocked("Mythlon save profile is malformed")
-            old = [item for item in pillars if isinstance(item, dict) and item.get("class") == "Bard"]
-            if len(old) != 1:
-                raise MigrationBlocked("Mythlon save profile is stale")
-            profile["saving_throw_pillars"] = [item for item in pillars if item is not old[0]] + [{
-                "class": "Warlock", "subclass": "Lady of Fortune",
-                "proficiencies": ["Wisdom", "Charisma"],
-            }]
-            found += 1
-    if found != 1:
+    matches = [
+        profile for profile in profiles
+        if isinstance(profile, dict) and profile.get("character") == "Mythlon Bladesinger"
+    ]
+    if len(matches) != 1:
         raise MigrationBlocked("expected exactly one Mythlon overview profile")
+    profile = matches[0]
+    pillars = profile.get("saving_throw_pillars")
+    if not isinstance(pillars, list):
+        raise MigrationBlocked("Mythlon save profile is malformed")
+    old = [item for item in pillars if isinstance(item, dict) and item.get("class") == "Bard"]
+    if len(old) != 1:
+        raise MigrationBlocked("Mythlon save profile is stale")
+    migrated = copy.deepcopy(profile)
+    migrated["saving_throw_pillars"] = [item for item in pillars if item is not old[0]] + [{
+        "class": "Warlock", "subclass": "Lady of Fortune",
+        "source": "Lady of Fortune Warlock",
+        "proficiencies": ["wis", "cha"],
+    }]
+    profiles.append(migrated)
     return value
 
 

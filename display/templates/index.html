@@ -1251,6 +1251,17 @@
     letter-spacing: 0.4px;
     text-transform: uppercase;
   }
+  .dashboard-spellbook { margin-top: 8px; border-top: 1px solid rgba(180,140,60,0.18); }
+  .dashboard-spellbook-summary {
+    padding: 7px 0 3px;
+    color: #e0bd63;
+    cursor: pointer;
+    font: 9px 'Cinzel', serif;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+  }
+  .dashboard-spellbook-summary:focus-visible { outline: 2px solid #e0bd63; outline-offset: 3px; }
+  .dashboard-spellbook[open] .dashboard-spellbook-summary { margin-bottom: 2px; }
   .dashboard-inventory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .dashboard-inventory-section {
     min-width: 0;
@@ -7329,7 +7340,7 @@ function _spellCategoryLabel(category) {
   }[category] || '';
 }
 
-function _appendSpellRows(container, spells) {
+function _appendSpellRows(container, spells, preparedNames = new Set()) {
   const list = document.createElement('div');
   list.className = 'dashboard-spell-list';
   spells.forEach(spell => {
@@ -7339,13 +7350,16 @@ function _appendSpellRows(container, spells) {
     name.className = 'dashboard-spell-name';
     name.textContent = spell.name;
     row.appendChild(name);
-    const category = _spellCategoryLabel(spell.category);
-    if (category) {
+    const categories = [_spellCategoryLabel(spell.category)];
+    if (spell.category === 'spellbook' && preparedNames.has(spell.name.toLocaleLowerCase())) {
+      categories.push('Prepared');
+    }
+    categories.filter(Boolean).forEach(category => {
       const badge = document.createElement('span');
       badge.className = 'dashboard-spell-badge';
       badge.textContent = category;
       row.appendChild(badge);
-    }
+    });
     list.appendChild(row);
   });
   container.appendChild(list);
@@ -7443,6 +7457,13 @@ function _renderDashboardSpells(panel, player) {
 
   spellcasting.sources.forEach(source => {
     if (!source.spells.length) return;
+    const isWizard = source.name.trim().toLocaleLowerCase() === 'wizard';
+    const visibleSpells = [];
+    const spellbook = [];
+    source.spells.forEach(spell => {
+      if (isWizard && spell.category === 'spellbook') spellbook.push(spell);
+      else visibleSpells.push(spell);
+    });
     const section = document.createElement('section');
     section.className = 'dashboard-spell-source';
     const heading = document.createElement('div');
@@ -7450,23 +7471,40 @@ function _renderDashboardSpells(panel, player) {
     heading.textContent = source.name;
     section.appendChild(heading);
     const groups = new Map();
-    source.spells.forEach(spell => {
+    visibleSpells.forEach(spell => {
       const key = spell.category === 'cantrip' ? 'cantrips'
+        : isWizard && spell.category === 'prepared' ? 'prepared'
         : spell.level != null ? `level-${spell.level}` : 'other';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(spell);
     });
     ['cantrips', ...[...groups.keys()].filter(key => key.startsWith('level-'))
-      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6))), 'other'].forEach(key => {
+      .sort((a, b) => Number(a.slice(6)) - Number(b.slice(6))), 'prepared', 'other'].forEach(key => {
       const group = groups.get(key);
       if (!group || !group.length) return;
       const level = document.createElement('div');
       level.className = 'dashboard-spell-level';
       level.textContent = key === 'cantrips' ? 'Cantrips'
+        : key === 'prepared' ? 'Prepared spells'
         : key === 'other' ? 'Other spells' : `Level ${key.slice(6)}`;
       section.appendChild(level);
       _appendSpellRows(section, group);
     });
+    if (spellbook.length) {
+      const disclosure = document.createElement('details');
+      disclosure.className = 'dashboard-spellbook';
+      const summary = document.createElement('summary');
+      summary.className = 'dashboard-spellbook-summary';
+      const countLabel = `${spellbook.length} ${spellbook.length === 1 ? 'spell' : 'spells'}`;
+      summary.textContent = `Spellbook · ${countLabel}`;
+      summary.setAttribute('aria-label', `${source.name} spellbook, ${countLabel}`);
+      disclosure.appendChild(summary);
+      const preparedNames = new Set(visibleSpells
+        .filter(spell => spell.category === 'prepared')
+        .map(spell => spell.name.toLocaleLowerCase()));
+      _appendSpellRows(disclosure, spellbook, preparedNames);
+      section.appendChild(disclosure);
+    }
     wrap.appendChild(section);
   });
 

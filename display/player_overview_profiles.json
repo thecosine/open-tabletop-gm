@@ -23,11 +23,45 @@
           "subclass": "Chronurgy Magic"
         },
         {
+          "class": "Bard",
+          "proficiencies": [
+            "dex",
+            "cha"
+          ],
+          "source": "College of Swords Bard",
+          "subclass": "College of Swords"
+        }
+      ]
+    },
+    {
+      "campaign": "mythlon-chronicles",
+      "character": "Mythlon Bladesinger",
+      "saving_throw_pillars": [
+        {
+          "class": "Rogue",
+          "proficiencies": [
+            "dex",
+            "int"
+          ],
+          "source": "Bladedancer",
+          "subclass": "Bladedancer"
+        },
+        {
+          "class": "Wizard",
+          "proficiencies": [
+            "int",
+            "wis"
+          ],
+          "source": "Chronurgy Wizard",
+          "subclass": "Chronurgy Magic"
+        },
+        {
           "class": "Warlock",
           "proficiencies": [
-            "Wisdom",
-            "Charisma"
+            "wis",
+            "cha"
           ],
+          "source": "Lady of Fortune Warlock",
           "subclass": "Lady of Fortune"
         }
       ]
