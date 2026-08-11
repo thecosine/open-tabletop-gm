@@ -40,11 +40,28 @@ python3 <skill-base>/scripts/combat.py init '<JSON>'
 # Reprint tracker from saved state
 python3 <skill-base>/scripts/combat.py tracker '<JSON>' <round_num>
 
-# Resolve a single attack
-python3 <skill-base>/scripts/combat.py attack --atk 10 --ac 20 --dmg 2d6+5
+# Initialize the canonical campaign combat store
+python3 <skill-base>/scripts/combat.py store-init \
+  --store <skill-base>/campaigns/CAMPAIGN/combat-state.json \
+  --campaign CAMPAIGN --actors-file /path/to/actors.json --repo-root <skill-base>
+
+# Resolve a typed campaign-scoped weapon attack atomically
+python3 <skill-base>/scripts/combat.py ingress \
+  --request-file /path/to/attack.json --repo-root <skill-base>
+
+# Emit a turn/rest/round/combat lifecycle event
+python3 <skill-base>/scripts/combat.py lifecycle-ingress \
+  --request-file /path/to/lifecycle.json --repo-root <skill-base>
+
+# Inspect/recover committed reconciliation intents
+python3 <skill-base>/scripts/combat.py outbox-list --campaign CAMPAIGN --repo-root <skill-base>
+python3 <skill-base>/scripts/combat.py outbox-process --campaign CAMPAIGN \
+  --repo-root <skill-base> --expected-revision N [--dry-run]
+python3 <skill-base>/scripts/combat.py reconcile-status --campaign CAMPAIGN --repo-root <skill-base>
 ```
 
-`init` outputs a `STATE_JSON:` line — store it in `state.md` under `## Active Combat` between turns.
+`init` prints initiative order. Store only the authoritative combat-state path,
+combat ID, and revision in `state.md` under `## Active Combat`.
 
 ---
 

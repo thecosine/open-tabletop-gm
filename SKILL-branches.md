@@ -202,27 +202,29 @@ Each player message during an active session:
 
 1. Read `<skill-base>/scripts/combat.md`
 2. Collect combatants: name, dex_mod, HP, AC, type (pc/enemy)
-3. Run `combat.py init` → store STATE_JSON in `state.md → ## Active Combat`
+3. Initialize the schema-versioned authoritative `combat-state.json`; record only its path, combat ID, and revision in `state.md → ## Active Combat`.
 4. If display running: push turn order via `push_stats.py --turn-order`
 5. Enter COMBAT state
 
 ## COMBAT — Turn
 
 Each turn in combat:
-1. Run `combat.py attack` or `dice.py` as needed (scripts/combat.md already in context)
+1. Emit typed turn boundaries through `combat.py lifecycle-ingress`, then resolve every weapon attack through `combat.py ingress`. The ingress payload names the campaign, authoritative target ID, and registered attack profile; it never supplies paths, AC, HP, or damage mechanics. Free-text attack declarations must be converted to this typed request before any mechanical resolution. Use `dice.py` only for standalone non-attack rolls.
 2. Run `tracker.py effect tick` for the active combatant
-3. If display running: update HP, conditions, turn pointer via `push_stats.py`
-4. If display running: send narration via `send.py`
+3. Run `combat.py outbox-process` at the committed revision. Target HP/conditions, persistent resource reconciliation, and the campaign-local display projection are applied from the durable outbox; never import display state into combat authority.
+4. If display running: consume the committed projection for presentation; do not independently mutate authoritative HP/resources.
+5. If display running: send narration via `send.py`
 
 ## COMBAT — End
 
-1. Run `tracker.py clear`
-2. Clear turn order: `push_stats.py --turn-clear`
-3. Resolve the encounter record with a stable event ID and known XP amount.
-4. Determine its XP status and award immediately unless the record explicitly contains a valid deferred/bundled linkage. For Mythlon, run `scripts/mythlon_xp_event.py resolve`; never create `not-awarded`.
-5. Narrate aftermath and show the XP summary in OpenCode/browser.
-6. Clear `## Active Combat` in state.md.
-7. Return to ACTIVE state.
+1. End the active turn, then emit typed `combat_end` through `combat.py lifecycle-ingress`; process and verify its resource, display, and archive intents with `outbox-process` / `reconcile-status`.
+2. Run `tracker.py clear`
+3. Clear turn order: `push_stats.py --turn-clear`
+4. Resolve the encounter record with a stable event ID and known XP amount.
+5. Determine its XP status and award immediately unless the record explicitly contains a valid deferred/bundled linkage. For Mythlon, run `scripts/mythlon_xp_event.py resolve`; never create `not-awarded`.
+6. Narrate aftermath and show the XP summary in OpenCode/browser.
+7. Clear `## Active Combat` in state.md only after reconciliation has no pending or failed final intents.
+8. Return to ACTIVE state.
 
 ---
 
@@ -234,6 +236,7 @@ Each turn in combat:
 4. Run `calendar.py rest short|long`
 5. Update state.md in-world date
 6. If display running: `push_stats.py --world-time` + HP/slot updates
+7. If authoritative combat state is active, emit the matching typed `short_rest` or `long_rest` through `combat.py lifecycle-ingress`, then run `outbox-process`; it restores store-owned Pact resources and reconciles them to persistent authority with compare-and-swap.
 
 ---
 

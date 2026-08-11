@@ -23,6 +23,7 @@ Endpoints:
 """
 
 import copy
+import hashlib
 import hmac
 import json
 import pathlib
@@ -33,10 +34,11 @@ import secrets
 import subprocess
 import sys
 import threading
+import time
 from collections import deque
 from typing import Optional
-from flask import Flask, Response, request, render_template, jsonify
-from flask_cors import CORS
+from flask import Flask, Response, request, render_template, jsonify, make_response
+from werkzeug.exceptions import RequestEntityTooLarge
 
 _DISPLAY_DIR  = os.path.dirname(os.path.abspath(__file__))
 _SKILL_DIR    = os.path.dirname(_DISPLAY_DIR)
@@ -53,6 +55,8 @@ try:
 except Exception:
     _lookup = None          # type: ignore
     _SRD_AVAILABLE = False
+
+import combat_ingress as _combat_ingress
 
 from paths import (
     campaign_dir as _campaign_dir,
@@ -76,10 +80,10 @@ from quest_cache import (
     normalize_snapshot as _normalize_quest_snapshot,
     refresh_from_state as _refresh_quests_from_state,
     write_snapshot as _write_quest_snapshot,
+    parse_active_quests as _parse_active_quests,
 )
 from people_cache import (
     build_snapshot as _build_people_snapshot,
-    empty_snapshot as _empty_people_snapshot,
 )
 from portrait_paths import normalize_player_records as _normalize_player_records
 from player_overview import project_players as _project_overview_players
@@ -104,7 +108,8 @@ def _apply_campaign_sfx_languages() -> None:
     if _audio is None:
         return
     try:
-        camp = open(CAMP_FILE).read().strip()
+        with open(CAMP_FILE, encoding="utf-8") as handle:
+            camp = handle.read().strip()
         if not camp:
             return
         state_md = _find_campaign(camp) / "state.md"
@@ -125,6 +130,7 @@ def _apply_campaign_sfx_languages() -> None:
 HELP_LOCK     = os.path.join(_DISPLAY_DIR, ".help-lock")
 CAMP_FILE     = os.path.join(_DISPLAY_DIR, ".campaign")
 STATS_FILE    = os.path.join(_DISPLAY_DIR, "stats.json")
+CAMPAIGN_TRANSITION_FILE = os.path.join(_DISPLAY_DIR, ".campaign-transition.json")
 TOKEN_FILE    = os.path.join(_DISPLAY_DIR, ".token")
 INPUT_FILE    = os.path.join(_DISPLAY_DIR, "player_input.json")
 TRIGGER_FILE  = os.path.join(_DISPLAY_DIR, ".input_trigger")
@@ -132,6 +138,100 @@ QUEUE_FILE    = os.path.join(_DISPLAY_DIR, ".input_queue")
 NARRATION_TARGET = os.path.join(_DISPLAY_DIR, "narration_target")  # set by display's Narration slider
 ROLL_PREFS_FILE  = os.path.join(_DISPLAY_DIR, "roll_prefs.json")   # per-character roll overrides
 
+
+def _fsync_directory(path: pathlib.Path) -> None:
+    """Make a replacement or unlink durable where directory fsync is supported."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _stage_bytes(path: pathlib.Path, value: bytes) -> pathlib.Path:
+    temporary = path.with_name(f"{path.name}.tmp-{secrets.token_hex(8)}")
+    with temporary.open("wb") as handle:
+        handle.write(value)
+        handle.flush()
+        os.fsync(handle.fileno())
+    return temporary
+
+
+def _atomic_write_bytes(path: pathlib.Path, value: bytes) -> None:
+    temporary = _stage_bytes(path, value)
+    try:
+        os.replace(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _atomic_write_json(path: pathlib.Path, value: object) -> None:
+    _atomic_write_bytes(path, json.dumps(value).encode("utf-8"))
+
+
+def _atomic_restore(path: pathlib.Path, exists: bool, value: bytes = b"") -> None:
+    if exists:
+        _atomic_write_bytes(path, value)
+    else:
+        path.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+
+
+def _write_campaign_transition_marker(campaign: str, stats: dict, quests: dict) -> None:
+    _atomic_write_json(pathlib.Path(CAMPAIGN_TRANSITION_FILE), {
+        "schema_version": 1,
+        "campaign": campaign,
+        "stats": stats,
+        "quests": quests,
+    })
+
+
+def _clear_campaign_transition_marker() -> None:
+    marker = pathlib.Path(CAMPAIGN_TRANSITION_FILE)
+    marker.unlink(missing_ok=True)
+    _fsync_directory(marker.parent)
+
+
+def _recover_campaign_transition() -> bool:
+    """Complete a campaign switch interrupted between durable replacements."""
+    marker = pathlib.Path(CAMPAIGN_TRANSITION_FILE)
+    try:
+        record = json.loads(marker.read_text(encoding="utf-8"))
+        campaign = record["campaign"]
+        stats = record["stats"]
+        quests = record["quests"]
+        if (
+            record.get("schema_version") != 1
+            or not isinstance(campaign, str)
+            or not _combat_ingress.CAMPAIGN_RE.fullmatch(campaign)
+            or not isinstance(stats, dict)
+            or stats.get("campaign") != campaign
+            or not isinstance(quests, dict)
+            or quests.get("campaign") != campaign
+        ):
+            raise ValueError("invalid campaign transition marker")
+        campaign_directory = pathlib.Path(_find_campaign(campaign))
+        if not campaign_directory.is_dir() or campaign_directory.is_symlink():
+            raise ValueError("campaign transition target unavailable")
+    except FileNotFoundError:
+        return False
+
+    # Complete forward. This is idempotent if recovery itself is interrupted;
+    # the marker remains until all three members are durable and coherent.
+    _atomic_write_json(campaign_directory / "display_quests.json", quests)
+    _atomic_write_json(pathlib.Path(STATS_FILE), stats)
+    _atomic_write_bytes(pathlib.Path(CAMP_FILE), campaign.encode("utf-8"))
+    _clear_campaign_transition_marker()
+    return True
+
+
+_recover_campaign_transition()
 _apply_campaign_sfx_languages()
 
 # ─── LAN / TLS mode ───────────────────────────────────────────────────────────
@@ -163,8 +263,7 @@ def _get_or_create_token() -> str:
 
 
 _lan_token: Optional[str] = _get_or_create_token() if _LAN_MODE else None
-
-
+_combat_capability_secret = secrets.token_bytes(32)
 # ─── Rate limiting ────────────────────────────────────────────────────────────
 # Simple in-process sliding window: max 20 write requests per IP per minute.
 # Prevents spam injection and brute-force token guessing on write endpoints.
@@ -249,6 +348,9 @@ _approved_devices: set[str]       = set()
 _denied_devices:   set[str]       = set()
 _pending_devices:  dict[str, dict] = {}  # device_id -> {ip, first_seen}
 _devices_lock = threading.Lock()
+_combat_devices: dict[tuple[str, str], dict] = {}
+_combat_devices_lock = threading.Lock()
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$")
 
 DEVICES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".approved_devices.json")
 
@@ -316,6 +418,134 @@ def _device_ok(device_id: str, ip: str) -> str:
         _persist_approved_devices()
         return "approved"
     return "pending"
+
+
+def _authorize_combat_device(
+    device_id: str,
+    role: str,
+    campaigns: list[str],
+    actor_ids: list[str],
+    *,
+    expires_at: float | None = None,
+) -> dict:
+    if not isinstance(device_id, str) or not _DEVICE_ID_RE.fullmatch(device_id):
+        raise ValueError("invalid combat device ID")
+    if role not in {"player", "gm"}:
+        raise ValueError("invalid combat device role")
+    if not isinstance(campaigns, list) or not campaigns or len(campaigns) > 16:
+        raise ValueError("combat authorization requires bounded campaigns")
+    if any(not isinstance(value, str) or not _combat_ingress.CAMPAIGN_RE.fullmatch(value) for value in campaigns):
+        raise ValueError("combat authorization campaign is invalid")
+    if not isinstance(actor_ids, list) or len(actor_ids) > 32 or any(
+        not isinstance(value, str) or not value or len(value) > 100 for value in actor_ids
+    ):
+        raise ValueError("combat authorization actor IDs are invalid")
+    if role == "player" and not actor_ids:
+        raise ValueError("player combat authorization requires actor IDs")
+    issued = _time.time()
+    maximum_lifetime = 12 * 3600 if role == "player" else 24 * 3600
+    expiry = expires_at if expires_at is not None else issued + maximum_lifetime
+    if not isinstance(expiry, (int, float)) or expiry <= issued or expiry > issued + maximum_lifetime:
+        raise ValueError("combat authorization expiry is invalid")
+    records = []
+    with _combat_devices_lock:
+        for campaign in campaigns:
+            key = (device_id, campaign)
+            existing = _combat_devices.get(key)
+            requested_actors = sorted(set(actor_ids))
+            if (
+                existing is not None
+                and existing["revoked_at"] is None
+                and existing["expires_at"] > issued
+                and existing["role"] == role
+                and existing["allowed_actor_ids"] == requested_actors
+                and (expires_at is None or existing["expires_at"] == float(expiry))
+            ):
+                records.append(_public_combat_grant(existing))
+                continue
+            grant_id = secrets.token_hex(16)
+            capability = _combat_capability_for_grant(grant_id)
+            capability_sha256 = hashlib.sha256(capability.encode("ascii")).hexdigest()
+            record = {
+                "grant_id": grant_id,
+                "device_id": device_id,
+                "role": role,
+                "allowed_actor_ids": requested_actors,
+                "campaign": campaign,
+                "issued_at": issued,
+                "expires_at": float(expiry),
+                "revoked_at": None,
+                "capability_sha256": capability_sha256,
+            }
+            _combat_devices[key] = record
+            records.append(_public_combat_grant(record))
+    return records[0]
+
+
+def _combat_capability_for_grant(grant_id: str) -> str:
+    """Derive a pseudorandom capability without retaining its plaintext."""
+    return hmac.new(_combat_capability_secret, grant_id.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def _public_combat_grant(record: dict) -> dict:
+    public_record = {key: value for key, value in record.items() if key != "capability_sha256"}
+    public_record["capability_token"] = _combat_capability_for_grant(record["grant_id"])
+    return public_record
+
+
+def _revoke_combat_device(device_id: str, campaign: str) -> None:
+    with _combat_devices_lock:
+        record = _combat_devices.get((device_id, campaign))
+        if record is not None:
+            record["revoked_at"] = _time.time()
+
+
+def _revoke_campaign_combat_devices(campaign: str | None) -> None:
+    if not campaign:
+        return
+    revoked = _time.time()
+    with _combat_devices_lock:
+        for (_device_id, record_campaign), record in _combat_devices.items():
+            if record_campaign == campaign and record["revoked_at"] is None:
+                record["revoked_at"] = revoked
+
+
+def _drop_campaign_combat_devices(campaign: str | None) -> None:
+    """Remove prior-generation grants entirely during a campaign transition."""
+    if not campaign:
+        return
+    with _combat_devices_lock:
+        _combat_devices.clear()
+
+
+def _combat_authorization(device_id: str, campaign: str) -> dict | None:
+    if not isinstance(device_id, str) or not _DEVICE_ID_RE.fullmatch(device_id):
+        return None
+    with _combat_devices_lock:
+        record = _combat_devices.get((device_id, campaign))
+        if record is None or record["revoked_at"] is not None or record["expires_at"] <= _time.time():
+            return None
+        return dict(record)
+
+
+def _combat_device_allowed(
+    device_id: str, campaign: str, *, actor_id: str | None = None, require_gm: bool = False,
+) -> bool:
+    record = _combat_authorization(device_id, campaign)
+    if record is None or (require_gm and record["role"] != "gm"):
+        return False
+    if actor_id is not None and record["role"] != "gm" and actor_id not in record["allowed_actor_ids"]:
+        return False
+    return True
+
+
+def _combat_capability_ok(device_id: str, campaign: str) -> bool:
+    record = _combat_authorization(device_id, campaign)
+    supplied = request.headers.get("X-DND-Combat-Token", "")
+    if record is None or not supplied:
+        return False
+    supplied_hash = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+    return hmac.compare_digest(supplied_hash, record["capability_sha256"])
 
 
 # ─── Staged input system ──────────────────────────────────────────────────────
@@ -532,7 +762,155 @@ def _token_ok() -> bool:
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-CORS(app)
+app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024
+
+
+class _CampaignRWLock:
+    """Writer-preferring lock guarding the complete campaign display domain."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition(threading.RLock())
+        self._readers = 0
+        self._writer = False
+        self._waiting_writers = 0
+
+    def acquire_read(self) -> None:
+        with self._condition:
+            while self._writer or self._waiting_writers:
+                self._condition.wait()
+            self._readers += 1
+
+    def release_read(self) -> None:
+        with self._condition:
+            self._readers -= 1
+            if not self._readers:
+                self._condition.notify_all()
+
+    def acquire_write(self) -> None:
+        with self._condition:
+            self._waiting_writers += 1
+            try:
+                while self._writer or self._readers:
+                    self._condition.wait()
+                self._writer = True
+            finally:
+                self._waiting_writers -= 1
+
+    def release_write(self) -> None:
+        with self._condition:
+            self._writer = False
+            self._condition.notify_all()
+
+
+_campaign_domain_lock = _CampaignRWLock()
+_campaign_generation = time.time_ns() // 1_000_000
+
+
+@app.before_request
+def _campaign_domain_enter():
+    data = request.get_json(silent=True) if request.path == "/chunk" and request.method == "POST" else None
+    mode = "write" if request.method in {"POST", "PUT", "PATCH", "DELETE"} else "read"
+    (_campaign_domain_lock.acquire_write if mode == "write" else _campaign_domain_lock.acquire_read)()
+    request.environ["otgm.campaign_lock"] = mode
+
+
+@app.teardown_request
+def _campaign_domain_exit(_error):
+    mode = request.environ.pop("otgm.campaign_lock", None)
+    if mode == "write":
+        _campaign_domain_lock.release_write()
+    elif mode == "read":
+        _campaign_domain_lock.release_read()
+
+
+def _normalize_origin(value: str) -> str | None:
+    from urllib.parse import urlsplit
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+            return None
+        return f"{parsed.scheme}://{parsed.netloc.lower()}"
+    except ValueError:
+        return None
+
+
+def _configured_origins() -> frozenset[str]:
+    configured = os.environ.get("GM_DISPLAY_TRUSTED_ORIGINS", "")
+    values = [value.strip() for value in configured.split(",") if value.strip()]
+    if not values:
+        port = _resolve_display_port()
+        values = [f"http://localhost:{port}", f"http://127.0.0.1:{port}"]
+    normalized = {_normalize_origin(value) for value in values}
+    return frozenset(value for value in normalized if value and value != "*")
+
+
+_trusted_origins = _configured_origins()
+
+
+def _is_loopback(address: str | None) -> bool:
+    import ipaddress
+    try:
+        return ipaddress.ip_address(address or "").is_loopback
+    except ValueError:
+        return False
+
+
+def _origin_allowed(*, combat: bool = False) -> bool:
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        normalized = _normalize_origin(origin)
+        return normalized is not None and normalized in _trusted_origins
+    if _is_loopback(request.remote_addr):
+        return True
+    return False
+
+
+def _combat_transport_allowed() -> bool:
+    """Remote combat traffic must use the direct request's HTTPS transport."""
+    return _is_loopback(request.remote_addr) or request.scheme == "https"
+
+
+def _build_tls_context(cert_path: str, key_path: str):
+    """Validate and wrap explicit TLS material, raising on every failure."""
+    import ssl
+    from cert_server import validate_tls_material
+    validate_tls_material(pathlib.Path(cert_path), pathlib.Path(key_path))
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert_path, key_path)
+    return context
+
+
+@app.before_request
+def _reject_untrusted_origin():
+    origin = request.headers.get("Origin")
+    if origin is not None and not _origin_allowed():
+        return jsonify({"error": "untrusted origin"}), 403
+
+
+@app.after_request
+def _trusted_cors_headers(response):
+    origin = request.headers.get("Origin")
+    normalized = _normalize_origin(origin) if origin else None
+    if normalized in _trusted_origins:
+        response.headers["Access-Control-Allow-Origin"] = normalized
+        response.headers["Vary"] = "Origin"
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, X-DND-Token, X-DND-Combat-Token, X-DND-Device"
+        )
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+    return response
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def _request_too_large(_error):
+    return jsonify({"error": "request body too large"}), 413
+
+
+def _combat_body_allowed(maximum: int = 64 * 1024) -> bool:
+    length = request.content_length
+    return length is not None and length <= maximum
 
 # Wire audio broadcast after _broadcast is defined (see bottom of file)
 # — done lazily via set_broadcast() called after app is created.
@@ -986,7 +1364,7 @@ _text_log_lock = threading.Lock()
 def _get_log_file() -> str:
     """Return the campaign-specific log path, or the fallback display-dir path."""
     try:
-        camp = open(CAMP_FILE).read().strip()
+        camp = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
         if camp:
             return str(_campaign_dir(camp) / "text_log.json")
     except Exception:
@@ -1060,7 +1438,8 @@ def _get_tail_file() -> "str | None":
     much harder to diagnose. New contract: campaign-specific or nothing.
     """
     try:
-        camp = open(CAMP_FILE).read().strip()
+        with open(CAMP_FILE, encoding="utf-8") as handle:
+            camp = handle.read().strip()
         if camp:
             return str(_campaign_dir(camp) / "session_tail.json")
     except Exception:
@@ -1132,7 +1511,8 @@ def _load_tail() -> None:
         return
 
     try:
-        current_camp = open(CAMP_FILE).read().strip()
+        with open(CAMP_FILE, encoding="utf-8") as handle:
+            current_camp = handle.read().strip()
     except Exception:
         current_camp = ""
 
@@ -1173,8 +1553,7 @@ def _persist_stats() -> None:
     try:
         with _stats_lock:
             data = dict(_current_stats)
-        with open(STATS_FILE, "w") as f:
-            json.dump(data, f)
+        _atomic_write_json(pathlib.Path(STATS_FILE), data)
     except Exception:
         pass
 
@@ -1276,6 +1655,130 @@ def _refresh_campaign_quests(campaign: str) -> dict:
     return snapshot
 
 
+def _prepare_campaign_transition(campaign: str, campaign_directory: pathlib.Path) -> dict:
+    """Read and validate the target domain without changing memory or disk."""
+    state_text = (campaign_directory / "state.md").read_text(encoding="utf-8", errors="replace")
+    previous_quests = _load_quest_snapshot(campaign_directory, campaign)
+    quest_snapshot = _normalize_quest_snapshot(
+        _parse_active_quests(state_text), campaign, previous=previous_quests,
+    )
+    people_snapshot = _build_people_snapshot(campaign_directory, campaign, [])
+
+    def read_entries(path: pathlib.Path, limit: int, *, stamped: bool = False) -> list[dict]:
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return []
+        if not isinstance(raw, list):
+            raise ValueError(f"invalid display cache: {path.name}")
+        result = []
+        for item in raw[-limit:]:
+            if isinstance(item, str):
+                item = {"text": item}
+            if not isinstance(item, dict):
+                continue
+            if stamped and item.get("_camp") not in (None, "", campaign):
+                continue
+            result.append(item)
+        return result
+    try:
+        from paths import campaign_system_version as _campaign_system_version
+        system_version = _campaign_system_version(campaign)
+    except Exception:
+        system_version = ""
+    return {
+        "quests": quest_snapshot,
+        "people": people_snapshot,
+        "system_version": system_version,
+        "text_log": read_entries(campaign_directory / "text_log.json", 60),
+        "tail": read_entries(campaign_directory / "session_tail.json", 30, stamped=True),
+    }
+
+
+def _commit_active_campaign(campaign: str) -> None:
+    _atomic_write_bytes(pathlib.Path(CAMP_FILE), campaign.encode("utf-8"))
+
+
+_campaign_transition_lock = threading.RLock()
+
+
+def _campaign_commit_hook(_stage: str) -> None:
+    """Test seam for deterministic failure injection between commit stages."""
+
+
+def _stage_json(path: pathlib.Path, value: object) -> pathlib.Path:
+    return _stage_bytes(path, json.dumps(value).encode("utf-8"))
+
+
+def _campaign_transition_snapshot() -> dict:
+    with _stats_lock:
+        stats = copy.deepcopy(_current_stats)
+    with _combat_devices_lock:
+        grants = copy.deepcopy(_combat_devices)
+    with _text_log_lock:
+        text_log = list(_text_log)
+    with _tail_lock:
+        tail = list(_tail_buffer)
+    with _staged_lock:
+        staged = copy.deepcopy(_staged)
+    with _queue_status_lock:
+        queue_status = list(_queue_status)
+    campaign_path = pathlib.Path(CAMP_FILE)
+    stats_path = pathlib.Path(STATS_FILE)
+    return {
+        "campaign_exists": campaign_path.exists(),
+        "campaign": campaign_path.read_text(encoding="utf-8") if campaign_path.exists() else "",
+        "stats": stats,
+        "stats_file_exists": stats_path.exists(),
+        "stats_file": stats_path.read_bytes() if stats_path.exists() else b"",
+        "grants": grants,
+        "text_log": text_log,
+        "tail": tail,
+        "recovery": copy.deepcopy(_combat_recovery_notice),
+        "generation": _campaign_generation,
+        "staged": staged,
+        "queue_status": queue_status,
+        "expected_count": _expected_count,
+        "scene_buffer": list(_scene_buffer),
+        "scene_name": _current_scene_name,
+    }
+
+
+def _restore_campaign_transition(snapshot: dict) -> None:
+    global _combat_recovery_notice, _campaign_generation, _expected_count
+    global _scene_buffer, _current_scene_name
+    campaign_path = pathlib.Path(CAMP_FILE)
+    if snapshot["campaign_exists"]:
+        _commit_active_campaign(snapshot["campaign"])
+    else:
+        campaign_path.unlink(missing_ok=True)
+    with _stats_lock:
+        _current_stats.clear()
+        _current_stats.update(copy.deepcopy(snapshot["stats"]))
+    with _combat_devices_lock:
+        _combat_devices.clear()
+        _combat_devices.update(copy.deepcopy(snapshot["grants"]))
+    with _text_log_lock:
+        _text_log.clear()
+        _text_log.extend(snapshot["text_log"])
+    with _tail_lock:
+        _tail_buffer.clear()
+        _tail_buffer.extend(snapshot["tail"])
+    with _staged_lock:
+        _staged.clear()
+        _staged.update(copy.deepcopy(snapshot["staged"]))
+    with _queue_status_lock:
+        _queue_status.clear()
+        _queue_status.extend(snapshot["queue_status"])
+    stats_path = pathlib.Path(STATS_FILE)
+    _atomic_restore(stats_path, snapshot["stats_file_exists"], snapshot["stats_file"])
+    _combat_recovery_notice = copy.deepcopy(snapshot["recovery"])
+    _campaign_generation = snapshot["generation"]
+    _expected_count = snapshot["expected_count"]
+    _scene_buffer = list(snapshot["scene_buffer"])
+    _current_scene_name = snapshot["scene_name"]
+
+
 _restore_active_quests()
 if _active_campaign():
     _refresh_campaign_people(_active_campaign())
@@ -1324,6 +1827,9 @@ _load_input_queue()
 
 
 def _broadcast(payload: dict) -> None:
+    payload = dict(payload)
+    payload.setdefault("campaign_generation", _campaign_generation)
+    payload.setdefault("campaign", _active_campaign())
     with _clients_lock:
         dead = []
         for q in _clients:
@@ -1334,6 +1840,49 @@ def _broadcast(payload: dict) -> None:
         for q in dead:
             _clients.remove(q)
             _client_chars.pop(q, None)
+
+
+_combat_recovery_notice: dict | None = None
+
+
+def _recover_campaign_combat(
+    campaign: str, *, broadcast: bool = True, install: bool = True,
+) -> dict | None:
+    global _combat_recovery_notice
+    if not campaign or not _combat_ingress.CAMPAIGN_RE.fullmatch(campaign):
+        if install:
+            _combat_recovery_notice = None
+        return None
+    try:
+        store = _combat_ingress._campaign_store(pathlib.Path(_SKILL_DIR), campaign)
+    except (_combat_ingress.AttackIngressError, OSError):
+        if install:
+            _combat_recovery_notice = None
+        return None
+    if not store.is_file() or store.is_symlink():
+        if install:
+            _combat_recovery_notice = None
+        return None
+    try:
+        result = _combat_ingress.combat.startup_recovery(store)
+        notice = {
+            "campaign": result["campaign"], "combat_id": result["combat_id"],
+            "status": result["status"], "round": result["round"],
+            "active_turn": result["active_turn"], "projection": result["projection"],
+            "blocked": result["blocked"], "failed": result["failed"],
+            "rotation_phase": result["rotation_phase"], "warnings": list(result["warnings"]),
+        }
+    except Exception:
+        notice = {
+            "campaign": campaign, "status": "unknown", "projection": "unavailable",
+            "blocked": 0, "failed": 0, "rotation_phase": "unknown",
+            "warnings": ["Combat recovery inspection failed; manual review required."],
+        }
+    if install:
+        _combat_recovery_notice = notice
+    if broadcast:
+        _broadcast({"combat_recovery": notice})
+    return notice
 
 
 # ─── Routes ──────────────────────────────────────────────────────────────────
@@ -1371,13 +1920,15 @@ def _load_ui_manifest() -> str:
 @app.route("/")
 def index():
     # Pass LAN token to template so the browser can authenticate /help-request
-    return render_template(
+    response = make_response(render_template(
         "index.html",
         lan_token=_lan_token or "",
         narrator_voice=_read_narrator_voice(),
         tts_available=(_tts is not None and _tts.key_source() != "unset"),
         ui_manifest=_load_ui_manifest(),
-    )
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/srd-lookup")
@@ -1431,7 +1982,7 @@ def health():
     is exposed.
     """
     try:
-        camp = open(CAMP_FILE).read().strip()
+        camp = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
     except Exception:
         camp = ""
     tail_path = _get_tail_file()
@@ -1458,7 +2009,7 @@ def health():
 
 @app.route("/chunk", methods=["POST"])
 def chunk():
-    if not _token_ok():
+    if not _token_ok() or not _is_loopback(request.remote_addr):
         return "Forbidden", 403
     data = request.get_json(silent=True) or {}
 
@@ -1467,41 +2018,105 @@ def chunk():
     # or without text.
     if "campaign" in data:
         campaign = str(data["campaign"]).strip()
-        if not campaign:
-            return "Campaign name required", 400
-        # Do not let a reconnect observe the previous campaign's People data
-        # after campaign registration has begun.
-        _install_people_snapshot(_empty_people_snapshot(campaign))
+        if not campaign or not _combat_ingress.CAMPAIGN_RE.fullmatch(campaign):
+            return "Safe campaign name required", 400
         try:
-            with open(CAMP_FILE, "w") as f:
-                f.write(campaign)
-            _load_log()
-            _load_tail()
-            # A campaign switch is a /gm load lifecycle trigger: normalize from
-            # state.md and replace the entire quest snapshot before broadcasting.
-            _refresh_campaign_quests(campaign)
-            _refresh_campaign_people(campaign)
-        except (OSError, ValueError) as exc:
-            return f"Campaign display refresh failed: {exc}", 400
-        # Resolve and stash the system version for this campaign so the sidebar
-        # badge can render. Empty string when the field is unset (legacy
-        # campaigns predating the field — they should be migrated via
-        # scripts/migrate_system_version.py at /gm load). Wrapped in try/except
-        # so a missing paths import or malformed state.md never breaks /chunk.
-        try:
-            from paths import campaign_system_version as _campaign_system_version
-            _sv = _campaign_system_version(campaign)
-            with _stats_lock:
-                _current_stats["system_version"] = _sv
-        except Exception:
-            pass
-        _persist_stats()
-        with _stats_lock:
-            campaign_stats = dict(_current_stats)
-        # Registration precedes the replacement player snapshot. Clear cards in
-        # this broadcast so old live stats cannot be paired with new campaign canon.
-        campaign_stats["players"] = []
-        _broadcast({"stats": _stats_for_display(campaign_stats, campaign)})
+            campaign_directory = pathlib.Path(_find_campaign(campaign))
+        except (OSError, ValueError):
+            return "Campaign directory unavailable", 404
+        if not campaign_directory.is_dir() or campaign_directory.is_symlink():
+            return "Campaign directory unavailable", 404
+        with _campaign_transition_lock:
+            global _campaign_generation, _combat_recovery_notice, _expected_count
+            global _scene_buffer, _current_scene_name
+            snapshot = _campaign_transition_snapshot()
+            previous_campaign = _active_campaign()
+            quest_path = campaign_directory / "display_quests.json"
+            quest_existed = quest_path.exists()
+            quest_before = quest_path.read_bytes() if quest_existed else b""
+            staged_files: list[pathlib.Path] = []
+            try:
+                prepared = _prepare_campaign_transition(campaign, campaign_directory)
+                # Startup recovery can reconcile outbox intents and is therefore not
+                # transition preparation. Registration installs no prior notice;
+                # combat routes/projectors will publish fresh target state afterward.
+                recovery = None
+
+                next_generation = _campaign_generation + 1
+                next_stats = {
+                    "campaign": campaign,
+                    "campaign_generation": next_generation,
+                    "players": [],
+                    "people": list(prepared["people"].get("people", [])),
+                    "people_meta": dict(prepared["people"].get("people_meta", {})),
+                    "quests": list(prepared["quests"].get("quests", [])),
+                    "quests_meta": _quest_meta(prepared["quests"]),
+                    "system_version": prepared["system_version"],
+                    "turn_order": None,
+                    "encounter_actors": [],
+                }
+                campaign_tmp = _stage_bytes(pathlib.Path(CAMP_FILE), campaign.encode("utf-8"))
+                staged_files.append(campaign_tmp)
+                quest_tmp = _stage_json(quest_path, prepared["quests"])
+                staged_files.append(quest_tmp)
+                stats_tmp = _stage_json(pathlib.Path(STATS_FILE), next_stats)
+                staged_files.append(stats_tmp)
+
+                _write_campaign_transition_marker(campaign, next_stats, prepared["quests"])
+                _campaign_commit_hook("marker")
+                _campaign_commit_hook("campaign")
+                os.replace(campaign_tmp, CAMP_FILE)
+                _fsync_directory(pathlib.Path(CAMP_FILE).parent)
+                _campaign_commit_hook("quests")
+                os.replace(quest_tmp, quest_path)
+                _fsync_directory(quest_path.parent)
+                _campaign_commit_hook("stats")
+                os.replace(stats_tmp, STATS_FILE)
+                _fsync_directory(pathlib.Path(STATS_FILE).parent)
+                _clear_campaign_transition_marker()
+                _campaign_commit_hook("memory")
+                with _stats_lock:
+                    _current_stats.clear()
+                    _current_stats.update(next_stats)
+                with _text_log_lock:
+                    _text_log.clear()
+                    _text_log.extend(prepared["text_log"])
+                with _tail_lock:
+                    _tail_buffer.clear()
+                    _tail_buffer.extend(prepared["tail"])
+                with _staged_lock:
+                    _staged.clear()
+                with _queue_status_lock:
+                    _queue_status.clear()
+                _campaign_generation = next_generation
+                _combat_recovery_notice = recovery
+                _expected_count = 1
+                _scene_buffer = []
+                _current_scene_name = "tavern"
+                if previous_campaign != campaign:
+                    _drop_campaign_combat_devices(previous_campaign)
+                _campaign_commit_hook("grants")
+                payload = {
+                    "stats": _stats_for_display(next_stats, campaign),
+                    "combat_campaign": campaign,
+                    "campaign_generation": next_generation,
+                    "campaign_reset": True,
+                }
+                if recovery is not None:
+                    payload["combat_recovery"] = recovery
+                _campaign_commit_hook("broadcast")
+                _broadcast(payload)
+            except Exception as exc:
+                try:
+                    _restore_campaign_transition(snapshot)
+                    _atomic_restore(quest_path, quest_existed, quest_before)
+                    _clear_campaign_transition_marker()
+                except Exception as rollback_exc:
+                    return f"Campaign display refresh failed and rollback failed: {exc}; {rollback_exc}", 500
+                return f"Campaign display refresh failed: {exc}", 400
+            finally:
+                for temporary in staged_files:
+                    temporary.unlink(missing_ok=True)
 
     # XP dispositions are structured, bodyless feed events. Persist them so a
     # reconnect replays the same award/defer summary without touching stats.
@@ -1633,7 +2248,7 @@ def chunk():
     # Stamp campaign onto the tail entry so cross-campaign replay can filter
     # and a stale shared file does not bleed into the active session.
     try:
-        _camp_stamp = open(CAMP_FILE).read().strip()
+        _camp_stamp = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
         if _camp_stamp:
             log_entry["_camp"] = _camp_stamp
     except Exception:
@@ -2246,7 +2861,7 @@ _VOICE_PAT = re.compile(r"^\s*tts_voice:\s*([A-Za-z]+)\s*$", re.MULTILINE)
 
 def _active_campaign_name() -> Optional[str]:
     try:
-        return open(CAMP_FILE).read().strip() or None
+        return pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip() or None
     except OSError:
         return None
 
@@ -2417,7 +3032,7 @@ def help_request():
 
     # Read active campaign name
     try:
-        campaign = open(CAMP_FILE).read().strip()
+        campaign = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         os.unlink(HELP_LOCK)
         return "No active campaign", 400
@@ -2532,7 +3147,7 @@ def player_dice():
     payload   = {"text": text, "dice": True}
     log_entry = {"text": text, "dice": True}
     try:
-        _camp_stamp = open(CAMP_FILE).read().strip()
+        _camp_stamp = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
         if _camp_stamp:
             log_entry["_camp"] = _camp_stamp
     except Exception:
@@ -2711,7 +3326,7 @@ def get_character_sheet(character):
         return "Bad character name", 400
 
     try:
-        camp = open(CAMP_FILE).read().strip()
+        camp = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
     except Exception:
         camp = ""
     # Sanitise the campaign name with the same allowlist + length cap as the
@@ -2767,6 +3382,73 @@ def device_deny():
     return "", 204
 
 
+@app.route("/combat/device/bootstrap", methods=["POST"])
+def combat_device_bootstrap():
+    """Grant the local display browser a short-lived GM combat capability."""
+    forwarded = any(request.headers.get(name) for name in ("Forwarded", "X-Forwarded-For", "X-Real-IP"))
+    if not _origin_allowed(combat=True) or not _is_loopback(request.remote_addr) or forwarded:
+        return jsonify({
+            "error": "automatic GM combat bootstrap is available only to the local full display",
+            "claim_required": True,
+        }), 403
+    if not _token_ok() or not _combat_body_allowed(8 * 1024):
+        return "Forbidden", 403
+    data = request.get_json(force=True, silent=True) or {}
+    campaign = _active_campaign()
+    device_id = data.get("device_id")
+    if data.get("client_mode") != "gm-display":
+        return jsonify({
+            "error": "automatic GM combat bootstrap requires the local full-display client",
+            "claim_required": True,
+        }), 403
+    if not campaign or not _combat_ingress.CAMPAIGN_RE.fullmatch(campaign):
+        return jsonify({"error": "no active campaign"}), 409
+    try:
+        record = _authorize_combat_device(device_id, "gm", [campaign], [])
+        return jsonify(record), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/combat/device/authorize", methods=["POST"])
+def combat_device_authorize():
+    if not _origin_allowed(combat=True) or not _combat_transport_allowed() or not _token_ok():
+        return "Forbidden", 403
+    campaign = _active_campaign()
+    requester = request.headers.get("X-DND-Device", "")
+    if not _combat_device_allowed(requester, campaign, require_gm=True) or not _combat_capability_ok(requester, campaign):
+        return "Forbidden", 403
+    if not _combat_body_allowed(16 * 1024):
+        return jsonify({"error": "request body too large"}), 413
+    data = request.get_json(force=True, silent=True) or {}
+    campaigns = data.get("campaigns")
+    if campaigns != [campaign]:
+        return jsonify({"error": "authorization must be scoped to the active campaign"}), 400
+    try:
+        record = _authorize_combat_device(
+            data.get("device_id"), data.get("role"), campaigns, data.get("actor_ids"),
+            expires_at=data.get("expires_at"),
+        )
+        return jsonify(record), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/combat/device/revoke", methods=["POST"])
+def combat_device_revoke():
+    if not _origin_allowed(combat=True) or not _combat_transport_allowed() or not _token_ok():
+        return "Forbidden", 403
+    campaign = _active_campaign()
+    requester = request.headers.get("X-DND-Device", "")
+    if not _combat_device_allowed(requester, campaign, require_gm=True) or not _combat_capability_ok(requester, campaign):
+        return "Forbidden", 403
+    if not _combat_body_allowed(8 * 1024):
+        return jsonify({"error": "request body too large"}), 413
+    data = request.get_json(force=True, silent=True) or {}
+    _revoke_combat_device(str(data.get("device_id", "")), campaign)
+    return "", 204
+
+
 @app.route("/player-input/stage", methods=["POST"])
 def stage_input():
     """Stage a player action for review. Broadcasts staged_inputs to all displays.
@@ -2811,6 +3493,77 @@ def stage_input():
 
     _broadcast({"staged_inputs": snap})
     return "", 204
+
+
+@app.route("/combat/attack", methods=["POST"])
+def typed_combat_attack():
+    """Execute an explicit typed attack; narrative text never enters this route."""
+    if not _origin_allowed(combat=True) or not _combat_transport_allowed() or not _token_ok():
+        return "Forbidden", 403
+    if not _rate_ok(request.remote_addr):
+        return "Too Many Requests", 429
+    campaign = _active_campaign()
+    device_id = request.headers.get("X-DND-Device", "")
+    if _combat_authorization(device_id, campaign) is None or not _combat_capability_ok(device_id, campaign):
+        return "Forbidden", 403
+    if not _combat_body_allowed():
+        return jsonify({"error": "request body too large"}), 413
+    data = request.get_json(force=True, silent=True)
+    try:
+        if not isinstance(data, dict) or data.get("campaign") != campaign:
+            raise _combat_ingress.AttackIngressError("typed attack campaign must match the active campaign")
+        if not _combat_device_allowed(device_id, campaign, actor_id=data.get("actor_id")):
+            return "Forbidden", 403
+        result = _combat_ingress.dispatch_attack(pathlib.Path(_SKILL_DIR), data)
+        return jsonify(result), 200
+    except _combat_ingress.AttackIngressError as exc:
+        return jsonify({"error": str(exc), "mechanical_resolution": "rejected"}), 409
+
+
+@app.route("/combat/lifecycle", methods=["POST"])
+def typed_combat_lifecycle():
+    """Execute a typed turn/rest/round/combat lifecycle event."""
+    if not _origin_allowed(combat=True) or not _combat_transport_allowed() or not _token_ok():
+        return "Forbidden", 403
+    if not _rate_ok(request.remote_addr):
+        return "Too Many Requests", 429
+    campaign = _active_campaign()
+    device_id = request.headers.get("X-DND-Device", "")
+    if not _combat_device_allowed(device_id, campaign, require_gm=True) or not _combat_capability_ok(device_id, campaign):
+        return "Forbidden", 403
+    if not _combat_body_allowed():
+        return jsonify({"error": "request body too large"}), 413
+    data = request.get_json(force=True, silent=True)
+    try:
+        if not isinstance(data, dict) or data.get("campaign") != campaign:
+            raise _combat_ingress.AttackIngressError("typed lifecycle campaign must match the active campaign")
+        result = _combat_ingress.dispatch_lifecycle(pathlib.Path(_SKILL_DIR), data)
+        return jsonify(result), 200
+    except _combat_ingress.AttackIngressError as exc:
+        return jsonify({"error": str(exc), "mechanical_resolution": "rejected"}), 409
+
+
+@app.route("/combat/projection", methods=["GET"])
+def combat_projection_view():
+    """Return the active campaign's projection-only combat view."""
+    if not _origin_allowed(combat=True) or not _combat_transport_allowed() or not _token_ok():
+        return "Forbidden", 403
+    campaign = _active_campaign()
+    if not campaign or not _combat_ingress.CAMPAIGN_RE.fullmatch(campaign):
+        return jsonify({"error": "no active campaign"}), 404
+    projection_device = request.headers.get("X-DND-Device", "")
+    if (
+        not _combat_device_allowed(projection_device, campaign, require_gm=True)
+        or not _combat_capability_ok(projection_device, campaign)
+    ):
+        return "Forbidden", 403
+    try:
+        store = _combat_ingress._campaign_store(pathlib.Path(_SKILL_DIR), campaign)
+        return jsonify(_combat_ingress.combat.read_display_projection(store)), 200
+    except _combat_ingress.combat.DestinationConflictError:
+        return jsonify({"error": "combat projection is stale"}), 409
+    except (OSError, json.JSONDecodeError, _combat_ingress.combat.CombatTransactionError):
+        return jsonify({"error": "combat projection unavailable"}), 503
 
 
 @app.route("/player-input/ready", methods=["POST"])
@@ -2985,21 +3738,30 @@ def stream():
 
     # Send the current scene immediately on connect so the browser
     # starts with the right background even mid-session.
+    generation = _campaign_generation
+    active_campaign = _active_campaign()
     initial_scene = SCENES[_current_scene_name] | {"name": _current_scene_name}
-    q.put_nowait({"scene": initial_scene})
+    q.put_nowait({"scene": initial_scene, "campaign_generation": generation, "campaign": active_campaign})
 
     # Replay recent entries so late-connecting / reconnecting browsers catch up.
     # Sent as a typed batch so the browser can render each item (dm/player/dice) correctly.
     with _text_log_lock:
         recent = list(_text_log)
     if recent:
-        q.put_nowait({"replay_batch": recent})
+        q.put_nowait({"replay_batch": recent, "campaign_generation": generation, "campaign": active_campaign})
 
     # Send current stats so the sidebar is populated immediately on (re)connect.
     with _stats_lock:
         initial_stats = dict(_current_stats)
     if initial_stats:
-        q.put_nowait({"stats": _stats_for_display(initial_stats)})
+        q.put_nowait({
+            "stats": _stats_for_display(initial_stats, active_campaign),
+            "combat_campaign": active_campaign,
+            "campaign_generation": generation,
+            "campaign": active_campaign,
+        })
+    if _combat_recovery_notice is not None:
+        q.put_nowait({"combat_recovery": dict(_combat_recovery_notice)})
 
     # Send current input queue so the pending indicator is accurate on reconnect.
     with _input_lock:
@@ -3104,7 +3866,13 @@ if __name__ == "__main__":
     _display_dir = os.path.dirname(os.path.abspath(__file__))
     _cert = os.path.join(_display_dir, "cert.pem")
     _key  = os.path.join(_display_dir, "key.pem")
-    ssl_ctx = (_cert, _key) if (_TLS_MODE and os.path.exists(_cert) and os.path.exists(_key)) else None
+    ssl_ctx = None
+    if _TLS_MODE:
+        try:
+            ssl_ctx = _build_tls_context(_cert, _key)
+        except Exception as exc:
+            print(f"GM Display TLS configuration error: {exc}", file=sys.stderr)
+            raise SystemExit(2)
     scheme  = "https" if ssl_ctx else "http"
 
     # Write .scheme so push_stats.py / send.py / autorun_wait.py know which to use
@@ -3124,4 +3892,5 @@ if __name__ == "__main__":
         print(f"GM Display — Flask server starting on {scheme}://localhost:{port}")
         print(f"Open {scheme}://localhost:{port} in your browser, then Chromecast the tab.")
         print()
+    _recover_campaign_combat(_active_campaign(), broadcast=False)
     app.run(host=host, port=port, threaded=True, debug=False, ssl_context=ssl_ctx)

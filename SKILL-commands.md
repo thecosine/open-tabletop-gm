@@ -22,6 +22,8 @@ Do NOT run `git init` or any git commands in campaign directories.
 | `/gm list` | List all campaigns. Follow `/gm list` branch. |
 | `/gm roll <notation>` | Roll dice. Follow `/gm roll` branch. |
 | `/gm combat start` | Start combat. Follow `/gm combat start` branch. |
+| `/gm attack <typed-json>` | Submit an explicit typed weapon attack through `combat.py ingress`; free text is not mechanically resolved. |
+| `/gm combat lifecycle <typed-json>` | Submit a typed turn/round/rest/combat-end event through `combat.py lifecycle-ingress`. |
 | `/gm rest <short\|long>` | Process a rest. Follow `/gm rest` branch. |
 | `/gm recap` | Read session-log.md; deliver 3-5 sentence in-character recap. |
 | `/gm world` | Read and display world.md for the current campaign. |

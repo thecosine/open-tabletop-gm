@@ -283,12 +283,13 @@ GMEND
 **Per-turn combat sequence:**
 ```
 a. send.py --player  ← player action
-b. Roll all dice (combat.py / dice.py)
+b. Convert explicit weapon intent to the strict typed schema and call `combat.py ingress`; free text and plain `dice.py` never resolve weapon mechanics.
 c. send.py --dice    ← ALL roll results with context
-d. tracker.py        ← conditions, status effects, death/incapacitation if applicable
+d. `combat.py outbox-process` ← apply committed target/resource/display intents exactly once
+   tracker.py        ← non-combat-store effects, death/incapacitation if applicable
    tracker.py effect tick <actor>  ← decrement round effects; prints expiry warnings
 e. Write full narration
-f. send.py [--stat-*] ← complete narration + ALL stat changes — NEVER skip
+f. send.py [--stat-*] ← complete narration; present the committed display projection, never use it as authority
 g. push_stats.py --turn-current  ← advance turn pointer
 ```
 
