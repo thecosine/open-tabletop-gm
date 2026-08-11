@@ -1,5 +1,4 @@
 {
-  "schema_version": 1,
   "profiles": [
     {
       "campaign": "mythlon-chronicles",
@@ -7,23 +6,32 @@
       "saving_throw_pillars": [
         {
           "class": "Rogue",
-          "subclass": "Bladedancer",
+          "proficiencies": [
+            "dex",
+            "int"
+          ],
           "source": "Bladedancer",
-          "proficiencies": ["dex", "int"]
+          "subclass": "Bladedancer"
         },
         {
           "class": "Wizard",
-          "subclass": "Chronurgy Magic",
+          "proficiencies": [
+            "int",
+            "wis"
+          ],
           "source": "Chronurgy Wizard",
-          "proficiencies": ["int", "wis"]
+          "subclass": "Chronurgy Magic"
         },
         {
-          "class": "Bard",
-          "subclass": "College of Swords",
-          "source": "College of Swords Bard",
-          "proficiencies": ["dex", "cha"]
+          "class": "Warlock",
+          "proficiencies": [
+            "Wisdom",
+            "Charisma"
+          ],
+          "subclass": "Lady of Fortune"
         }
       ]
     }
-  ]
+  ],
+  "schema_version": 1
 }

@@ -25,6 +25,8 @@ Output (unless --silent):
 import random
 import re
 import sys
+import json
+from pathlib import Path
 
 
 def parse_notation(notation: str):
@@ -113,6 +115,22 @@ def run(notation: str, silent: bool = False) -> int:
 
 
 if __name__ == "__main__":
+    if "--weapon-attack-request" in sys.argv[1:]:
+        try:
+            from .combat_ingress import dispatch_attack
+            from .authoritative_combat import read_bounded
+        except ImportError:
+            from combat_ingress import dispatch_attack
+            from authoritative_combat import read_bounded
+        args = sys.argv[1:]
+        if "--repo-root" not in args:
+            raise SystemExit("classified weapon attacks require --repo-root")
+        request_path = Path(args[args.index("--weapon-attack-request") + 1])
+        _, request = read_bounded(request_path, "classified weapon attack request")
+        result = dispatch_attack(Path(args[args.index("--repo-root") + 1]), request)
+        print("COMBAT_INGRESS_JSON:", json.dumps(result, sort_keys=True))
+        raise SystemExit(0)
+
     args = [a for a in sys.argv[1:] if a != "--silent"]
     silent = "--silent" in sys.argv[1:]
 

@@ -12,7 +12,7 @@ _FIELD_RE = re.compile(r"\*\*([^*]+):\*\*\s*([^|]+)")
 _SIGNED_RE = re.compile(r"(?<!\w)([+-]\d+)\b")
 _SAVE_RE = re.compile(r"\b([A-Za-z]{3,12})\s*([+-]\d+)\b")
 _GESTALT_PART_RE = re.compile(
-    r"(?P<base>Rogue|Bard|Wizard)\s+\d+\s*\((?P<subclass>[^)]+)\)",
+    r"(?P<base>Rogue|Bard|Warlock|Wizard)\s+\d+\s*\((?P<subclass>[^)]+)\)",
     re.IGNORECASE,
 )
 _PROFILE_PATH = Path(__file__).with_name("player_overview_profiles.json")
@@ -90,7 +90,7 @@ def _spellcasting(sections: dict[str, list[str]]) -> dict[str, Any] | None:
     fields = _fields(lines)
     for label, value in fields.items():
         display_label = label.strip()
-        source_meta = re.fullmatch(r"(bard|wizard)", display_label, re.IGNORECASE)
+        source_meta = re.fullmatch(r"(bard|warlock|wizard)", display_label, re.IGNORECASE)
         if source_meta:
             meta = re.match(
                 r"DC\s*([+-]?\d+),\s*attack\s*([+-]?\d+)(?:,|$)", value, re.IGNORECASE
@@ -147,12 +147,13 @@ def _gestalt_identity(raw_class: str) -> dict[str, Any] | None:
         match.group("base").casefold(): match.group("subclass").strip()
         for match in _GESTALT_PART_RE.finditer(raw_class)
     }
-    if not all(key in parts for key in ("rogue", "wizard", "bard")):
+    if "rogue" not in parts or "wizard" not in parts or not ({"bard", "warlock"} & parts):
         return {"class": raw_class, "gestalt": True}
 
     wizard = re.sub(r"\s+Magic$", "", parts["wizard"], flags=re.IGNORECASE)
+    third = "Warlock" if "warlock" in parts else "Bard"
     return {
-        "class": f'{parts["rogue"]} / {wizard} Wizard / {parts["bard"]} Bard',
+        "class": f'{parts["rogue"]} / {wizard} Wizard / {parts[third.casefold()]} {third}',
         "gestalt": True,
     }
 

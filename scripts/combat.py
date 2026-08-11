@@ -10,8 +10,8 @@ Usage:
     python3 combat.py tracker <state_json>
         Prints the current combat tracker table from a JSON state blob.
 
-    python3 combat.py attack --atk <bonus> --ac <target_ac> --dmg <notation> [--crit]
-        Resolves a single attack roll and damage.
+    python3 combat.py attack --store <path> --request-file <path> --repo-root <path>
+        Resolves a typed weapon attack through the authoritative transaction store.
 
 Input / Output is JSON-friendly so the GM agent can pipe state between turns.
 
@@ -24,6 +24,21 @@ import json
 import random
 import sys
 import re
+
+try:
+    from .paired_pact_runtime import PactRuntimeError
+    from .authoritative_combat import (
+        execute_attack, initialize_store, lifecycle_transaction, outbox_list,
+        process_outbox, reconciliation_status, startup_recovery, read_bounded,
+    )
+    from .combat_ingress import dispatch_attack, dispatch_lifecycle, _campaign_store
+except ImportError:  # Direct script execution.
+    from paired_pact_runtime import PactRuntimeError
+    from authoritative_combat import (
+        execute_attack, initialize_store, lifecycle_transaction, outbox_list,
+        process_outbox, reconciliation_status, startup_recovery, read_bounded,
+    )
+    from combat_ingress import dispatch_attack, dispatch_lifecycle, _campaign_store
 
 
 def roll(n, sides):
@@ -67,34 +82,17 @@ def print_tracker(combatants: list[dict], round_num: int = 1):
     print(f"{'='*68}\n")
 
 
-def resolve_attack(atk_bonus: int, target_ac: int, dmg_notation: str, is_crit: bool = False) -> dict:
-    raw = random.randint(1, 20)
-    total_atk = raw + atk_bonus
-    hit = raw == 20 or (raw != 1 and total_atk >= target_ac)
-    crit = raw == 20
-
-    result = {
-        "d20": raw,
-        "attack_bonus": atk_bonus,
-        "total": total_atk,
-        "target_ac": target_ac,
-        "hit": hit,
-        "crit": crit,
-        "fumble": raw == 1,
-    }
-
-    if hit:
-        dmg, rolls = dice(dmg_notation)
-        if crit:
-            # Double the dice rolls on crit
-            extra, extra_rolls = dice(dmg_notation.split("+")[0].split("-")[0])
-            dmg += extra
-            rolls += extra_rolls
-        result["damage"] = dmg
-        result["damage_rolls"] = rolls
-        result["damage_notation"] = dmg_notation
-
-    return result
+def resolve_attack(
+    atk_bonus: int,
+    target_ac: int,
+    dmg_notation: str,
+    is_crit: bool = False,
+    feature_context: dict | None = None,
+) -> dict:
+    raise PactRuntimeError(
+        "low-level attack resolution is unmanaged; "
+        "weapon attacks must use authoritative_combat.execute_attack"
+    )
 
 
 def format_attack(r: dict) -> str:
@@ -136,19 +134,76 @@ if __name__ == "__main__":
         print()
         print("STATE_JSON:", json.dumps(ordered))
 
+    elif cmd == "store-init":
+        from pathlib import Path
+        args = sys.argv[2:]
+        store = Path(args[args.index("--store") + 1])
+        campaign = args[args.index("--campaign") + 1]
+        actors_path = Path(args[args.index("--actors-file") + 1])
+        repo_root = Path(args[args.index("--repo-root") + 1])
+        _, configuration = read_bounded(actors_path, "combat initialization request")
+        if not isinstance(configuration, dict) or set(configuration) != {"actors", "combatants", "attack_profiles"}:
+            raise SystemExit("actors file requires exact actors, combatants, and attack_profiles objects")
+        state = initialize_store(
+            store,
+            campaign,
+            configuration["actors"],
+            repo_root / "data/paired_pact_feature_registry.json",
+            repo_root,
+            combatants=configuration["combatants"],
+            attack_profiles=configuration["attack_profiles"],
+        )
+        print("COMBAT_STORE_JSON:", json.dumps({
+            "path": str(store), "combat_id": state["combat_id"], "revision": state["revision"],
+        }, sort_keys=True))
+
     elif cmd == "tracker":
         state = json.loads(sys.argv[2])
         round_num = int(sys.argv[3]) if len(sys.argv) > 3 else 1
         print_tracker(state, round_num)
 
     elif cmd == "attack":
+        raise SystemExit(
+            "direct attack submission is disabled; the authoritative transaction path is "
+            "combat.py ingress with a campaign-scoped typed request"
+        )
+
+    elif cmd == "pact-reset":
+        raise SystemExit(
+            "detached pact resets are forbidden; use combat.py lifecycle with the authoritative store"
+        )
+
+    elif cmd == "lifecycle":
+        raise SystemExit(
+            "direct lifecycle submission is disabled; use combat.py lifecycle-ingress "
+            "with a campaign-scoped typed request"
+        )
+
+    elif cmd in {"ingress", "lifecycle-ingress"}:
+        from pathlib import Path
         args = sys.argv[2:]
-        atk = int(args[args.index("--atk") + 1])
-        ac = int(args[args.index("--ac") + 1])
-        dmg = args[args.index("--dmg") + 1]
-        crit = "--crit" in args
-        result = resolve_attack(atk, ac, dmg, crit)
-        print(format_attack(result))
+        request_path = Path(args[args.index("--request-file") + 1])
+        repo_root = Path(args[args.index("--repo-root") + 1])
+        _, payload = read_bounded(request_path, "combat ingress request")
+        result = dispatch_attack(repo_root, payload) if cmd == "ingress" else dispatch_lifecycle(repo_root, payload)
+        print("COMBAT_INGRESS_JSON:", json.dumps(result, sort_keys=True))
+
+    elif cmd in {"outbox-list", "outbox-process", "reconcile-status", "startup-recover"}:
+        from pathlib import Path
+        args = sys.argv[2:]
+        campaign = args[args.index("--campaign") + 1]
+        repo_root = Path(args[args.index("--repo-root") + 1])
+        store = _campaign_store(repo_root, campaign)
+        if cmd == "outbox-list":
+            result = {"events": outbox_list(store)}
+        elif cmd == "reconcile-status":
+            result = reconciliation_status(store)
+        elif cmd == "startup-recover":
+            result = startup_recovery(store)
+        else:
+            revision = int(args[args.index("--expected-revision") + 1])
+            result = process_outbox(store, revision, dry_run="--dry-run" in args)
+        print("COMBAT_RECOVERY_JSON:", json.dumps(result, sort_keys=True))
 
     else:
         print(f"Unknown command: {cmd}")
