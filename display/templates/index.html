@@ -248,6 +248,15 @@
     font-style: italic;
   }
 
+  .campaign-timestamp {
+    color: #f2f5f7;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10px;
+    font-style: normal;
+    letter-spacing: 0.02em;
+    margin: 0 0 0.35em;
+  }
+
   /* ── Player action intent block ── */
   .action-block {
     margin-bottom: 1.4em;
@@ -5601,13 +5610,22 @@ function _reanchorCursor() {
   scrollToBottom();
 }
 
+function _appendCampaignTimestamp(block, timestamp) {
+  if (!timestamp) return;
+  const stamp = document.createElement('div');
+  stamp.className = 'campaign-timestamp';
+  stamp.textContent = timestamp;
+  block.appendChild(stamp);
+}
+
 // ── Player action block ──────────────────────────────────────────────
-function renderPlayerBlock(name, text, isReplay) {
+function renderPlayerBlock(name, text, isReplay, timestamp) {
   _flushForBlock();
 
   const block = document.createElement('div');
   block.className = 'player-block';
   if (isReplay) block.style.opacity = '0.65';
+  _appendCampaignTimestamp(block, timestamp);
 
   const nameEl = document.createElement('div');
   nameEl.className = 'player-name';
@@ -5633,12 +5651,13 @@ function renderPlayerBlock(name, text, isReplay) {
 }
 
 // ── Player action intent block ───────────────────────────────────────
-function renderActionBlock(name, text, isReplay) {
+function renderActionBlock(name, text, isReplay, timestamp) {
   _flushForBlock();
 
   const block = document.createElement('div');
   block.className = 'action-block';
   if (isReplay) block.style.opacity = '0.45';
+  _appendCampaignTimestamp(block, timestamp);
 
   const tag = document.createElement('div');
   tag.className = 'action-tag';
@@ -5658,12 +5677,13 @@ function renderActionBlock(name, text, isReplay) {
   _reanchorCursor();
 }
 
-function renderSidebandBlock(channel, speaker, name, text, isReplay) {
+function renderSidebandBlock(channel, speaker, name, text, isReplay, timestamp) {
   _flushForBlock();
   const isGM = speaker === 'gm';
   const block = document.createElement('section');
   block.className = `sideband-block ${channel}-block ${isGM ? 'gm-sideband' : 'player-sideband'}`;
   if (isReplay) block.style.opacity = '0.72';
+  _appendCampaignTimestamp(block, timestamp);
 
   const label = document.createElement('div');
   label.className = 'sideband-label';
@@ -5681,12 +5701,13 @@ function renderSidebandBlock(channel, speaker, name, text, isReplay) {
 }
 
 // ── NPC dialogue block ───────────────────────────────────────────────
-function renderNPCBlock(name, text, isReplay) {
+function renderNPCBlock(name, text, isReplay, timestamp) {
   _flushForBlock();
 
   const block = document.createElement('div');
   block.className = 'npc-block';
   if (isReplay) block.style.opacity = '0.65';
+  _appendCampaignTimestamp(block, timestamp);
 
   const nameEl = document.createElement('div');
   nameEl.className = 'npc-name';
@@ -5833,12 +5854,13 @@ function _makeDieRoll(data, isMulti, fullText) {
 }
 
 // ── Dice result block ─────────────────────────────────────────────────
-function renderDiceBlock(text, isReplay) {
+function renderDiceBlock(text, isReplay, timestamp) {
   _flushForBlock();
 
   const block = document.createElement('div');
   block.className = 'dice-block';
   if (isReplay) block.style.opacity = '0.65';
+  _appendCampaignTimestamp(block, timestamp);
 
   const cleaned = text.trim()
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
@@ -5881,7 +5903,7 @@ function renderDiceBlock(text, isReplay) {
 }
 
 // ── Tutor / learning hint block ──────────────────────────────────────
-function renderTutorBlock(text, isReplay) {
+function renderTutorBlock(text, isReplay, timestamp) {
   _flushForBlock();
 
   // Detect warning prefix (lines starting with ⚠ or WARNING:)
@@ -5890,6 +5912,7 @@ function renderTutorBlock(text, isReplay) {
   const block = document.createElement('div');
   block.className = 'tutor-block' + (isWarning ? ' tutor-warning' : '');
   if (isReplay) block.style.opacity = '0.65';
+  _appendCampaignTimestamp(block, timestamp);
 
   // Clickable header row
   const header = document.createElement('div');
@@ -5953,11 +5976,12 @@ function renderInspirationBlock(name, reason) {
 // ── Milestone award block (stack-based reward — Bardic Inspiration die / Hero Coin / etc.) ──
 // Distinct from the binary D&D 5e Inspiration block above. Use the label arg to name what
 // kind of reward was earned.
-function renderMilestoneBlock(name, label, reason, isReplay) {
+function renderMilestoneBlock(name, label, reason, isReplay, timestamp) {
   _flushForBlock();
   const block = document.createElement('div');
   block.className = 'milestone-block';
   if (isReplay) block.style.opacity = '0.7';
+  _appendCampaignTimestamp(block, timestamp);
   const header = document.createElement('div');
   header.className = 'milestone-header';
   header.innerHTML = `<span class="milestone-icon">✦</span>` +
@@ -5976,10 +6000,11 @@ function renderMilestoneBlock(name, label, reason, isReplay) {
 }
 
 // ── XP award block ─────────────────────────────────────────────────────────
-function renderXpBlock(xpData) {
+function renderXpBlock(xpData, timestamp) {
   _flushForBlock();
   const block = document.createElement('div');
   block.className = 'xp-block';
+  _appendCampaignTimestamp(block, timestamp);
   const heading = document.createElement('div');
   heading.className = 'xp-heading';
   heading.textContent = xpData.status === 'awarded' ? 'XP AWARDED'
@@ -6024,36 +6049,37 @@ function renderReplayBatch(items) {
       return;
     }
     if (item.milestone_award) {
-      renderMilestoneBlock(item.milestone_award, item.label || 'Milestone', item.reason || '', true);
+      renderMilestoneBlock(item.milestone_award, item.label || 'Milestone', item.reason || '', true, item.campaign_timestamp);
       return;
     }
     if (item.xp_award) {
-      renderXpBlock(item.xp_award);
+      renderXpBlock(item.xp_award, item.campaign_timestamp);
       return;
     }
     if (!item.text) return;
     if (item.player_ooc) {
-      renderSidebandBlock('ooc', 'player', item.player_ooc, item.text, true);
+      renderSidebandBlock('ooc', 'player', item.player_ooc, item.text, true, item.campaign_timestamp);
     } else if (item.gm_ooc) {
-      renderSidebandBlock('ooc', 'gm', '', item.text, true);
+      renderSidebandBlock('ooc', 'gm', '', item.text, true, item.campaign_timestamp);
     } else if (item.player_meta) {
-      renderSidebandBlock('meta', 'player', item.player_meta, item.text, true);
+      renderSidebandBlock('meta', 'player', item.player_meta, item.text, true, item.campaign_timestamp);
     } else if (item.gm_meta) {
-      renderSidebandBlock('meta', 'gm', '', item.text, true);
+      renderSidebandBlock('meta', 'gm', '', item.text, true, item.campaign_timestamp);
     } else if (item.action) {
-      renderActionBlock(item.action, item.text, true);
+      renderActionBlock(item.action, item.text, true, item.campaign_timestamp);
     } else if (item.player) {
-      renderPlayerBlock(item.player, item.text, true);
+      renderPlayerBlock(item.player, item.text, true, item.campaign_timestamp);
     } else if (item.npc) {
-      renderNPCBlock(item.npc, item.text, true);
+      renderNPCBlock(item.npc, item.text, true, item.campaign_timestamp);
     } else if (item.dice) {
-      renderDiceBlock(item.text, true);
+      renderDiceBlock(item.text, true, item.campaign_timestamp);
     } else if (item.tutor) {
-      renderTutorBlock(item.text, true);
+      renderTutorBlock(item.text, true, item.campaign_timestamp);
     } else {
       const block = document.createElement('div');
       block.className = 'dm-block';
       block.style.opacity = '0.75';
+      _appendCampaignTimestamp(block, item.campaign_timestamp);
       item.text.split('\n').forEach(line => {
         const p = document.createElement('p');
         _appendInlineSegments(p, _mdParse(line));
@@ -6115,7 +6141,7 @@ function _hideProcessingIndicator() {
   if (el) el.remove();
 }
 
-function handleIncomingText(text) {
+function handleIncomingText(text, timestamp) {
   _hideProcessingIndicator();
   // Debounce block separation: if there was a gap > IDLE_GAP, new block
   const now = Date.now();
@@ -6123,6 +6149,7 @@ function handleIncomingText(text) {
     flushNewBlock();
   }
   lastChunkTime = now;
+  if (timestamp) _appendCampaignTimestamp(getOrCreateBlock(), timestamp);
 
   // Reset idle timer
   clearTimeout(idleTimer);
@@ -9972,33 +9999,33 @@ function connect() {
       renderInspirationBlock(payload.inspiration_award, payload.reason || '');
     }
     if (payload.milestone_award) {
-      renderMilestoneBlock(payload.milestone_award, payload.label || 'Milestone', payload.reason || '');
+      renderMilestoneBlock(payload.milestone_award, payload.label || 'Milestone', payload.reason || '', false, payload.campaign_timestamp);
     }
     // milestone_spend: server processes the counter decrement; no feed block
     if (payload.xp_award) {
-      renderXpBlock(payload.xp_award);
+      renderXpBlock(payload.xp_award, payload.campaign_timestamp);
     }
     if (payload.text && !payload.inspiration_award && !payload.milestone_award && !payload.milestone_spend && !payload.xp_award) {
       if (payload.player_ooc) {
-        renderSidebandBlock('ooc', 'player', payload.player_ooc, payload.text);
+        renderSidebandBlock('ooc', 'player', payload.player_ooc, payload.text, false, payload.campaign_timestamp);
       } else if (payload.gm_ooc) {
-        renderSidebandBlock('ooc', 'gm', '', payload.text);
+        renderSidebandBlock('ooc', 'gm', '', payload.text, false, payload.campaign_timestamp);
       } else if (payload.player_meta) {
-        renderSidebandBlock('meta', 'player', payload.player_meta, payload.text);
+        renderSidebandBlock('meta', 'player', payload.player_meta, payload.text, false, payload.campaign_timestamp);
       } else if (payload.gm_meta) {
-        renderSidebandBlock('meta', 'gm', '', payload.text);
+        renderSidebandBlock('meta', 'gm', '', payload.text, false, payload.campaign_timestamp);
       } else if (payload.action) {
-        renderActionBlock(payload.action, payload.text);
+        renderActionBlock(payload.action, payload.text, false, payload.campaign_timestamp);
       } else if (payload.player) {
-        renderPlayerBlock(payload.player, payload.text);
+        renderPlayerBlock(payload.player, payload.text, false, payload.campaign_timestamp);
       } else if (payload.npc) {
-        renderNPCBlock(payload.npc, payload.text);
+        renderNPCBlock(payload.npc, payload.text, false, payload.campaign_timestamp);
       } else if (payload.dice) {
-        renderDiceBlock(payload.text);
+        renderDiceBlock(payload.text, false, payload.campaign_timestamp);
       } else if (payload.tutor) {
-        renderTutorBlock(payload.text);
+        renderTutorBlock(payload.text, false, payload.campaign_timestamp);
       } else {
-        handleIncomingText(payload.text);
+        handleIncomingText(payload.text, payload.campaign_timestamp);
       }
     }
   };

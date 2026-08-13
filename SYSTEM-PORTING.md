@@ -25,7 +25,7 @@ These parts of the skill work identically for any tabletop RPG:
 - **Timed effects** — round-based and time-based effect tracking works for any system. Rounds, minutes, hours, indefinite — all supported.
 - **Status effect tracking** — `tracker.py` tracks conditions, concentration/sustained effects, and incapacitation state. The condition *names* are configurable.
 - **Campaign file structure** — `state.md`, `world.md`, `npcs.md`, `session-log.md` are game-agnostic. A campaign is a campaign.
-- **Time and calendar** — `calendar.py` is fully configurable to any calendar system. You define the month names, day names, and month length.
+- **Time and calendar** — `calendar.py` uses the fixed deterministic 13×28 campaign calendar. Flavor names are metadata; numeric dates are canonical.
 - **The display companion** — the cinematic display, stat sidebar, and effect pills work for any game. Health bars, resource pips, conditions, turn order — all generic.
 - **Scene detection** — the display companion's scene keyword system works for any setting. It reads the narration and adjusts the background accordingly.
 - **The 12 GM principles** — these apply to every TTRPG. Improvisation, consequence, NPC craft, pacing — universal.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 import re
@@ -126,11 +127,19 @@ class ComposerMarkupTests(unittest.TestCase):
         ).group(0)
         self.assertIn("p.textContent = cleaned", renderer)
         self.assertNotRegex(renderer, r"\.(?:slice|substring|substr)\s*\(")
-        self.assertIn("renderActionBlock(payload.action, payload.text)", self.source)
-        self.assertIn("renderActionBlock(item.action, item.text, true)", self.source)
+        self.assertIn("renderActionBlock(payload.action, payload.text, false, payload.campaign_timestamp)", self.source)
+        self.assertIn("renderActionBlock(item.action, item.text, true, item.campaign_timestamp)", self.source)
+
+    def test_timestamp_renderer_is_optional_for_legacy_entries(self):
+        helper = re.search(
+            r"function _appendCampaignTimestamp\(.*?\n\}", self.source, re.DOTALL
+        ).group(0)
+        self.assertIn("if (!timestamp) return", helper)
+        self.assertIn("className = 'campaign-timestamp'", helper)
+        self.assertIn("item.campaign_timestamp", self.source)
 
     def test_standard_narration_dispatch_remains_intact(self):
-        self.assertIn("handleIncomingText(payload.text)", self.source)
+        self.assertIn("handleIncomingText(payload.text, payload.campaign_timestamp)", self.source)
 
     def test_typed_combat_browser_api_is_separate_from_narrative_and_dice(self):
         self.assertIn("window.openTabletopCombat", self.source)
@@ -936,6 +945,7 @@ class StagingTransportTests(unittest.TestCase):
         with (
             mock.patch.object(self.app, "_persist_log"),
             mock.patch.object(self.app, "_persist_tail"),
+            mock.patch.object(self.app, "_campaign_timestamp", return_value="[0001-03-17 14:35]"),
             mock.patch.object(self.app, "_broadcast") as broadcast,
         ):
             response = self.client.post(
@@ -944,8 +954,51 @@ class StagingTransportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
         self.assertEqual(
             broadcast.call_args.args[0],
-            {"action": "Player Action", "text": text},
+            {"action": "Player Action", "text": text, "campaign_timestamp": "[0001-03-17 14:35]"},
         )
+
+    def test_legacy_and_timestamped_log_entries_remain_distinct(self):
+        legacy = {"action": "Player Action", "text": "Mythlon: Wait here."}
+        timestamped = {**legacy, "campaign_timestamp": "[0001-03-17 14:35]"}
+        self.app._text_log.clear()
+        self.app._text_log.extend((legacy, timestamped))
+        self.assertNotIn("campaign_timestamp", self.app._text_log[0])
+        self.assertEqual(self.app._text_log[1]["campaign_timestamp"], "[0001-03-17 14:35]")
+
+
+class PlayerActionQuoteSemanticsTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.autorun = _load_module(DISPLAY / "autorun_wait.py", "party_input_autorun")
+
+    def visible(self, text):
+        return self.autorun._visible_text([{"character": "Mythlon", "text": text}])
+
+    def test_unquoted_action_remains_unquoted(self):
+        self.assertEqual(self.visible("We'll pool it for now."), "Mythlon: We'll pool it for now.")
+
+    def test_explicit_dialogue_keeps_one_pair_of_quotes(self):
+        self.assertEqual(
+            self.visible('"We\'ll pool it for now."'),
+            'Mythlon: "We\'ll pool it for now."',
+        )
+
+    def test_mixed_action_and_dialogue_preserves_structure_and_multiline(self):
+        text = 'Walk over to Sassafras and lower my voice.\n"We should keep the key for now."'
+        self.assertEqual(self.visible(text), f"Mythlon: {text}")
+        self.assertNotIn('""', self.visible(text))
+
+    def test_autorun_echo_and_promotion_send_exact_quote_semantics(self):
+        captured = {
+            "entries": [{"character": "Mythlon", "text": 'Approach quietly.\n"Wait here."'}],
+            "digest": "abc123",
+            "output": "queued",
+        }
+        completed = mock.Mock(returncode=0, stderr="")
+        with mock.patch.object(self.autorun.subprocess, "run", return_value=completed) as run:
+            self.assertTrue(self.autorun._echo_and_promote(captured))
+        self.assertEqual(run.call_args_list[0].kwargs["input"], 'Mythlon: Approach quietly.\n"Wait here."')
+        self.assertIn("--promote-digest", run.call_args_list[1].args[0])
 
 
 class DisplaySendTests(unittest.TestCase):
@@ -967,6 +1020,20 @@ class DisplaySendTests(unittest.TestCase):
         chunks = self.send._split_paragraphs(text)
         self.assertEqual("".join(chunks), text)
         self.assertTrue(all(len(chunk) <= self.send.CHUNK_LIMIT for chunk in chunks))
+
+    def test_replay_timestamp_and_legacy_absence_are_forwarded(self):
+        for flag, expected in (
+            (("--campaign-timestamp", "[0001-03-17 14:35]"), "[0001-03-17 14:35]"),
+            (("--no-campaign-timestamp",), None),
+        ):
+            posted = []
+            with mock.patch.object(sys, "argv", ["send.py", "--action", "Player Action", *flag]), mock.patch.object(
+                sys, "stdin", io.StringIO("Mythlon: Wait here.")
+            ), mock.patch.object(self.send, "_read_token", return_value=""), mock.patch.object(
+                self.send, "_post", side_effect=lambda _url, body, _token: posted.append(json.loads(body)) or True
+            ):
+                self.send.main()
+            self.assertEqual(posted[0]["campaign_timestamp"], expected)
 
 
 class WrapperMultilineTests(unittest.TestCase):

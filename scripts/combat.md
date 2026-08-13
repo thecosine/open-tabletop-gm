@@ -71,6 +71,8 @@ Use `combat.py lifecycle-ingress` for `start_turn`, `end_turn`, `next_round`,
 runtime resets are forbidden. Switching weapons, making an off-hand attack, or
 spending a Bonus Action is never a reset boundary.
 
+Committed `next_round`, `short_rest`, and `long_rest` events enqueue durable campaign-time intents for 6 seconds, 1 hour, and 8 hours respectively. `outbox-process` applies each operation idempotently; never issue a separate calendar advance for the same lifecycle event.
+
 ---
 
 ## Tracker — `scripts/tracker.py`

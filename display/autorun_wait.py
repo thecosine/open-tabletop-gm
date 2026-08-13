@@ -44,7 +44,7 @@ def _capture() -> dict | None:
 
 def _visible_text(entries: list[dict]) -> str:
     return "\n".join(
-        f'{entry.get("character", "Player")}: "{entry.get("text", "").strip()}"'
+        f'{entry.get("character", "Player")}: {entry.get("text", "").strip()}'
         for entry in entries
     )
 
@@ -62,7 +62,7 @@ def _echo_entry(entry: dict) -> bool:
         visible = text
     else:
         cmd = [sys.executable, str(SEND), "--action", "Player Action", "--verify"]
-        visible = f'{character}: "{text}"'
+        visible = f"{character}: {text}"
     pushed = subprocess.run(cmd, input=visible, capture_output=True, text=True)
     if pushed.returncode != 0:
         print(f"player echo failed ({pushed.returncode}): {pushed.stderr.strip()}", flush=True)

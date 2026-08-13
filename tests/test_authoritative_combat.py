@@ -32,6 +32,7 @@ class AuthoritativeCombatTransactionTests(unittest.TestCase):
                 pathlib.Path.home() / ".local/share/open-tabletop-gm/mythlon-engine/character_state.json",
                 REPO / "display/.autorun-poller.pid",
             )
+            if path.exists()
         }
 
     @classmethod
@@ -428,6 +429,28 @@ class AuthoritativeCombatTransactionTests(unittest.TestCase):
             self.store, "lifecycle-long-rest", self.revision(), "long_rest"
         )
         self.assertEqual(long["resources"][self.actor]["pact_slots"]["current"], 2)
+
+    def test_round_and_rests_advance_campaign_time_once_through_outbox(self):
+        self.end_turn("time-end-turn-0001")
+        tx.lifecycle_transaction(self.store, "time-round-0001", self.revision(), "next_round")
+        self.process()
+        self.assertEqual(tx.campaign_time.current_scalar(self.campaign), 6)
+
+        tx.lifecycle_transaction(self.store, "time-short-rest-0001", self.revision(), "short_rest")
+        self.process()
+        self.assertEqual(tx.campaign_time.current_scalar(self.campaign), 3606)
+
+        tx.lifecycle_transaction(self.store, "time-long-rest-0001", self.revision(), "long_rest")
+        self.process()
+        self.assertEqual(tx.campaign_time.current_scalar(self.campaign), 32406)
+
+        self.process()
+        self.assertEqual(tx.campaign_time.current_scalar(self.campaign), 32406)
+
+        clock = self.campaign / "campaign-time.json"
+        clock.unlink()
+        with self.assertRaisesRegex(tx.DestinationConflictError, "campaign clock destination"):
+            self.current()
 
     def test_display_projection_is_read_only(self):
         before = self.store.read_bytes()

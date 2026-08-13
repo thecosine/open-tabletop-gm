@@ -29,28 +29,28 @@ Flags nat 20 (CRITICAL HIT) and nat 1 (FUMBLE) automatically.
 SKILL=<skill-base>
 CAMP=<campaign-name>
 
-# One-time setup (run during /gm new)
-python3 $SKILL/scripts/calendar.py -c $CAMP init \
-    --date "15 Harvestmoon 1247" \
-    --time "morning" \
-    --months "Frostfall,Deepwinter,Thawmonth,Seedtime,Bloomtide,Highsun,Harvestmoon,Duskfall" \
-    --month-length 30 \
-    --day-names "Sunday,Moonday,Ironday,Windday,Earthday,Fireday,Starday"
+# Safe initialization and current time
+python3 $SKILL/scripts/calendar.py -c $CAMP init
+python3 $SKILL/scripts/calendar.py -c $CAMP now
 
 # Time advancement
-python3 $SKILL/scripts/calendar.py -c $CAMP advance 8 hours
-python3 $SKILL/scripts/calendar.py -c $CAMP advance 2 days
-python3 $SKILL/scripts/calendar.py -c $CAMP rest short   # +1 hour
-python3 $SKILL/scripts/calendar.py -c $CAMP rest long    # +8 hours
+python3 $SKILL/scripts/calendar.py -c $CAMP advance 30 minutes --event-id travel-001
+python3 $SKILL/scripts/calendar.py -c $CAMP rest short --event-id rest-001
+python3 $SKILL/scripts/calendar.py -c $CAMP rest long --event-id rest-002
 
-# Query / manual set
-python3 $SKILL/scripts/calendar.py -c $CAMP now
-python3 $SKILL/scripts/calendar.py -c $CAMP set "22 Harvestmoon 1247" evening
-python3 $SKILL/scripts/calendar.py -c $CAMP time night
-python3 $SKILL/scripts/calendar.py -c $CAMP events
+# Numeric canonical set, duration estimate handoff, and commitments
+python3 $SKILL/scripts/calendar.py -c $CAMP set "0001-03-17 14:30" --event-id time-set-001
+python3 $SKILL/scripts/calendar.py -c $CAMP hint travel-estimate-001 30 travel
+python3 $SKILL/scripts/calendar.py -c $CAMP consume travel-estimate-001 --event-id travel-001
+python3 $SKILL/scripts/calendar.py -c $CAMP commitment return-001 "Return to the smith" "0001-03-20 14:30"
+python3 $SKILL/scripts/calendar.py -c $CAMP due
 ```
 
-**When to run:** after every rest; after significant travel or time skip; keep in sync with `state.md` in-world date.
+The fixed calendar has 13 28-day months and seven weekdays. `campaign-time.json` stores scalar elapsed seconds; names are metadata. Estimates never advance time until consumed. Use one stable event ID per elapsed event so retries are no-ops.
+
+## Crafting durations
+
+`crafting_duration.py` samples locally from `data/crafting_duration_rules.json`. Mythlon categories are Quick (1-2 minutes), Small (5-15 minutes), Medium (30-60 minutes), and Large (4-12 hours). Supply `--seed` for reproducible selection; every result includes the seed and an audit hash. `--task animal-processing --horse-equivalents N` scales a sampled Small duration by body mass/count. The separate `normal` namespace intentionally rejects unconfigured categories rather than inventing durations.
 
 ---
 

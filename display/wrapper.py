@@ -54,13 +54,26 @@ import urllib.request
 from display_config import resolve_display_port
 
 _DIR           = pathlib.Path(__file__).parent
+_SCHEME_FILE   = _DIR / ".scheme"
 TRIGGER_FILE   = str(_DIR / ".input_trigger")
 QUEUE_FILE     = str(_DIR / ".input_queue")
 STATS_FILE     = str(_DIR / "stats.json")
 CAMP_FILE      = str(_DIR / ".campaign")
 AUDIT_LOG      = str(_DIR / "input_log.json")
 TOKEN_FILE     = str(_DIR / ".token")
-DISPLAY_URL    = f"https://127.0.0.1:{resolve_display_port()}"
+
+
+def _resolve_display_url(
+    scheme_file: pathlib.Path = _SCHEME_FILE,
+    environ: dict[str, str] | None = None,
+) -> str:
+    scheme = scheme_file.read_text(encoding="utf-8").strip() if scheme_file.exists() else "http"
+    if scheme not in {"http", "https"}:
+        raise ValueError(f"invalid display scheme {scheme!r}; expected 'http' or 'https'")
+    return f"{scheme}://127.0.0.1:{resolve_display_port(environ)}"
+
+
+DISPLAY_URL    = _resolve_display_url()
 
 # Self-signed cert — skip verification for localhost
 _SSL_CTX = ssl.create_default_context()
