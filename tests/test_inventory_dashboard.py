@@ -356,14 +356,13 @@ class InventoryFrontendContractTests(unittest.TestCase):
             "function _renderDashboardOverview(panel, p)",
             "function _renderDashboardPeople(panel, selectedPlayer)",
             "function _renderDashboardSpells(panel, player)",
+            "function _renderDashboardFeatures(panel, player)",
+            "function _renderDashboardNotes(panel, player)",
             "if (tabName === 'Overview')", "if (tabName === 'People')",
-            "if (tabName === 'Spells')",
+            "if (tabName === 'Spells')", "if (tabName === 'Features')", "if (tabName === 'Notes')",
             "openLegacySheet(_dashboardPlayerName)",
         ):
             self.assertIn(token, self.source)
-        for tab in ("Features", "Notes"):
-            self.assertNotIn(f"function _renderDashboard{tab}", self.source)
-        self.assertIn("dashboard content is coming in a later phase", self.source)
 
 
 if __name__ == "__main__":

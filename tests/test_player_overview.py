@@ -542,13 +542,11 @@ class OverviewFrontendContractTests(unittest.TestCase):
         self.assertIn("if (hasPlayerSnapshot || hasPeopleSnapshot) _renderSelectedDashboard()", update)
         for token in (
             "function _renderDashboardInventory", "function _renderDashboardPeople",
-            "function _renderDashboardSpells",
-            "dashboard content is coming in a later phase",
+            "function _renderDashboardSpells", "function _renderDashboardFeatures",
+            "function _renderDashboardNotes",
             "focus({preventScroll: true})", "event.stopPropagation()", "openLegacySheet(_dashboardPlayerName)",
         ):
             self.assertIn(token, self.source)
-        for tab in ("Features", "Notes"):
-            self.assertNotIn(f"function _renderDashboard{tab}", self.source)
 
     def test_overview_snapshot_replaces_instead_of_merging_stale_fields(self):
         update = self.source.split("function updateStats(stats)", 1)[1].split(
