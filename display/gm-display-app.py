@@ -89,6 +89,7 @@ from people_cache import (
 from portrait_paths import normalize_player_records as _normalize_player_records
 from player_overview import project_players as _project_overview_players
 from player_inventory import project_players as _project_inventory_players
+from player_features import project_players as _project_feature_players
 from display_config import resolve_display_port as _resolve_display_port
 
 # TTS module — degrades silently if Gemini API key not configured.
@@ -138,6 +139,7 @@ TRIGGER_FILE  = os.path.join(_DISPLAY_DIR, ".input_trigger")
 QUEUE_FILE    = os.path.join(_DISPLAY_DIR, ".input_queue")
 NARRATION_TARGET = os.path.join(_DISPLAY_DIR, "narration_target")  # set by display's Narration slider
 ROLL_PREFS_FILE  = os.path.join(_DISPLAY_DIR, "roll_prefs.json")   # per-character roll overrides
+TURN_COMPLETIONS_FILE = os.path.join(_DISPLAY_DIR, ".turn-completions.json")
 
 
 def _fsync_directory(path: pathlib.Path) -> None:
@@ -565,6 +567,12 @@ _autorun_threshold: Optional[int] = None  # overrides _expected_count when set v
 # initial data and is broadcast to all connected clients on change.
 _queue_status: list = []
 _queue_status_lock = threading.Lock()
+
+# An injected browser turn remains pending until OpenCode reports session.idle.
+# Publication recovery retries only final prose under a stable completion ID;
+# it never replays the player input or any authoritative mutation.
+_turn_completion_lock = threading.RLock()
+_turn_pending: dict | None = None
 
 # Last autorun cycle broadcast — replayed on SSE reconnect so late-joining
 # clients start the countdown from the correct elapsed position.
@@ -1384,6 +1392,70 @@ def _persist_log() -> None:
         pass
 
 
+def _get_turn_completions_file() -> pathlib.Path:
+    try:
+        campaign = _active_campaign_name()
+        if campaign:
+            directory = pathlib.Path(_find_campaign(campaign)).resolve()
+            if directory.is_dir() and not directory.is_symlink():
+                return directory / ".display-turn-completions.json"
+    except Exception:
+        pass
+    return pathlib.Path(TURN_COMPLETIONS_FILE)
+
+
+def _active_campaign_name() -> str:
+    try:
+        value = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
+        return value if _combat_ingress.CAMPAIGN_RE.fullmatch(value) else ""
+    except Exception:
+        return ""
+
+
+def _turn_pending_file() -> pathlib.Path:
+    return pathlib.Path(TURN_COMPLETIONS_FILE).with_name(".turn-pending.json")
+
+
+def _load_turn_pending() -> dict | None:
+    try:
+        value = json.loads(_turn_pending_file().read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) and value.get("campaign") else None
+    except Exception:
+        return None
+
+
+def _set_turn_pending(value: dict | None) -> None:
+    global _turn_pending
+    _turn_pending = value
+    path = _turn_pending_file()
+    if value is None:
+        path.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+    else:
+        _atomic_write_json(path, value)
+
+
+_turn_pending = _load_turn_pending()
+
+
+def _load_turn_completions() -> dict[str, dict]:
+    try:
+        value = json.loads(_get_turn_completions_file().read_text(encoding="utf-8"))
+        records = value.get("completions", {}) if isinstance(value, dict) else {}
+        return records if isinstance(records, dict) else {}
+    except Exception:
+        return {}
+
+
+def _persist_turn_completions(records: dict[str, dict]) -> None:
+    # Keep a bounded durable retry ledger; authoritative campaign state is never
+    # stored here and cannot be replayed through this endpoint.
+    bounded = dict(list(records.items())[-200:])
+    path = _get_turn_completions_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_json(path, {"schema_version": 1, "completions": bounded})
+
+
 def _load_log() -> None:
     """Load a previously persisted text log. Called at startup and on campaign switch.
     Handles both old string format and new dict format."""
@@ -1608,7 +1680,10 @@ def _stats_for_display(stats: dict, campaign: str = "") -> dict:
         campaign_dir = _find_campaign(active)
         snapshot["players"] = _project_inventory_players(
             campaign_dir,
-            _project_overview_players(campaign_dir, players),
+            _project_feature_players(
+                campaign_dir,
+                _project_overview_players(campaign_dir, players),
+            ),
         )
     except (OSError, ValueError):
         pass
@@ -1716,6 +1791,10 @@ def _prepare_campaign_transition(campaign: str, campaign_directory: pathlib.Path
 
 def _commit_active_campaign(campaign: str) -> None:
     _atomic_write_bytes(pathlib.Path(CAMP_FILE), campaign.encode("utf-8"))
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        if pending and pending.get("campaign") != campaign:
+            _set_turn_pending(None)
 
 
 _campaign_transition_lock = threading.RLock()
@@ -2303,6 +2382,167 @@ def chunk():
     _persist_tail()
     _broadcast(payload)
     return "", 204
+
+
+@app.route("/turn-completion", methods=["POST"])
+def turn_completion():
+    """Publish one completed OpenCode response without replaying its turn.
+
+    This endpoint intentionally accepts no stats, inventory, time, combat, or XP
+    fields. Retrying a stable completion ID can only deduplicate/recover prose.
+    """
+    if not _token_ok() or not _is_loopback(request.remote_addr):
+        return "Forbidden", 403
+    data = request.get_json(silent=True) or {}
+    if set(data) != {"completion_id", "session_id", "message_id", "parent_id", "text"}:
+        return "Publication-only completion fields required", 400
+    completion_id = str(data.get("completion_id") or "").strip()
+    session_id = str(data.get("session_id") or "").strip()
+    message_id = str(data.get("message_id") or "").strip()
+    parent_id = str(data.get("parent_id") or "").strip()
+    raw = data.get("text")
+    if (
+        not re.fullmatch(r"opencode:[A-Za-z0-9_-]{1,160}:[A-Za-z0-9_-]{1,160}", completion_id)
+        or not session_id
+        or not message_id
+        or not parent_id
+        or not isinstance(raw, str)
+    ):
+        return "Invalid turn completion", 400
+    cleaned = _clean(raw)
+    if not cleaned.strip() or len(cleaned) > 200_000:
+        return "Invalid turn completion text", 400
+
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        records = _load_turn_completions()
+        existing = records.get(completion_id)
+        if existing is None:
+            with _text_log_lock:
+                prior_entry = next(
+                    (entry for entry in reversed(_text_log) if entry.get("turn_completion") == completion_id),
+                    None,
+                )
+            if prior_entry is not None:
+                existing = {
+                    "text_sha256": hashlib.sha256(
+                        str(prior_entry.get("text") or "").encode("utf-8")
+                    ).hexdigest(),
+                    "published": True,
+                }
+        if existing:
+            if existing.get("text_sha256") != hashlib.sha256(cleaned.encode("utf-8")).hexdigest():
+                return "Completion ID conflicts with prior text", 409
+            _set_turn_pending(None)
+            _broadcast({"dm_processing": False, "turn_completion": completion_id})
+            return {"status": "duplicate", "completion_id": completion_id}, 200
+
+        if (
+            not pending
+            or pending.get("campaign") != _active_campaign_name()
+            or pending.get("session_id") != session_id
+            or pending.get("user_message_id") != parent_id
+        ):
+            return "Completion does not match the pending autorun turn", 409
+
+        # If explicit send.py prose already arrived after wrapper injection, it is
+        # the model-selected display rendering. Record completion without adding a
+        # second narration block.
+        with _text_log_lock:
+            turn_entries = list(_text_log)[int(pending.get("log_index", 0)):]
+        explicitly_published = any(
+            entry.get("text")
+            and not any(key in entry for key in ("action", "player", "player_ooc", "player_meta", "dice"))
+            and not any(key in entry for key in ("xp_award", "milestone_award", "milestone_spend", "effect_expired"))
+            for entry in turn_entries
+        )
+        record = {
+            "session_id": session_id,
+            "message_id": message_id,
+            "text_sha256": hashlib.sha256(cleaned.encode("utf-8")).hexdigest(),
+            "published": not explicitly_published,
+        }
+        if not explicitly_published:
+            timestamp = _campaign_timestamp()
+            payload = {"text": cleaned, "turn_completion": completion_id}
+            log_entry = dict(payload)
+            if timestamp:
+                payload["campaign_timestamp"] = timestamp
+                log_entry["campaign_timestamp"] = timestamp
+            try:
+                campaign = pathlib.Path(CAMP_FILE).read_text(encoding="utf-8").strip()
+                if campaign:
+                    log_entry["_camp"] = campaign
+            except Exception:
+                pass
+            with _text_log_lock:
+                _text_log.append(log_entry)
+            with _tail_lock:
+                _tail_buffer.append(log_entry)
+            _persist_log()
+            _persist_tail()
+            _broadcast(payload)
+
+        records[completion_id] = record
+        _persist_turn_completions(records)
+        _set_turn_pending(None)
+        _broadcast({"dm_processing": False, "turn_completion": completion_id})
+        return {
+            "status": "published" if not explicitly_published else "already-published",
+            "completion_id": completion_id,
+        }, 200
+
+
+@app.route("/turn-completion/status", methods=["GET"])
+def turn_completion_status():
+    if not _token_ok() or not _is_loopback(request.remote_addr):
+        return "Forbidden", 403
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        return {
+            "pending": bool(pending),
+            "bound": bool(pending.get("session_id") and pending.get("user_message_id")),
+        }, 200
+
+
+@app.route("/turn-completion/bind", methods=["POST"])
+def turn_completion_bind():
+    if not _token_ok() or not _is_loopback(request.remote_addr):
+        return "Forbidden", 403
+    data = request.get_json(silent=True) or {}
+    if set(data) != {"session_id", "user_message_id"}:
+        return "Binding fields required", 400
+    session_id = str(data.get("session_id") or "").strip()
+    user_message_id = str(data.get("user_message_id") or "").strip()
+    if not session_id or not user_message_id:
+        return "Invalid turn binding", 400
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        if not pending or pending.get("campaign") != _active_campaign_name():
+            return "No pending autorun turn", 409
+        if pending.get("session_id") and (
+            pending.get("session_id") != session_id or pending.get("user_message_id") != user_message_id
+        ):
+            return "Pending turn is already bound", 409
+        pending.update({"session_id": session_id, "user_message_id": user_message_id})
+        _set_turn_pending(pending)
+        return {"status": "bound"}, 200
+
+
+@app.route("/turn-completion/fail", methods=["POST"])
+def turn_completion_fail():
+    if not _token_ok() or not _is_loopback(request.remote_addr):
+        return "Forbidden", 403
+    data = request.get_json(silent=True) or {}
+    session_id = str(data.get("session_id") or "").strip()
+    user_message_id = str(data.get("user_message_id") or "").strip()
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        if pending.get("session_id") != session_id or pending.get("user_message_id") != user_message_id:
+            return "Failure does not match pending turn", 409
+        _set_turn_pending(None)
+        _broadcast({"dm_processing": False, "turn_failed": True})
+        return {"status": "cleared"}, 200
 
 
 _SIDEBAR_FRIENDLY_SIDES = {"party", "ally", "friendly", "pc", "companion", "summon"}
@@ -3719,6 +3959,12 @@ def queue_consumed():
         return "Forbidden", 403
     with _queue_status_lock:
         _queue_status.clear()
+    with _turn_completion_lock, _text_log_lock:
+        _set_turn_pending({
+            "campaign": _active_campaign_name(),
+            "log_index": len(_text_log),
+            "injected_at": _time.time(),
+        })
     _broadcast({"queue_status": [], "dm_processing": True})
     return "", 204
 
@@ -3819,6 +4065,8 @@ def stream():
     with _queue_status_lock:
         if _queue_status:
             q.put_nowait({"queue_status": list(_queue_status)})
+    with _turn_completion_lock:
+        q.put_nowait({"dm_processing": bool(_turn_pending)})
 
     # Send current pending dice requests so the "Waiting on…" badge survives reload.
     snap = _dice_pending_snapshot()

@@ -280,18 +280,19 @@ class DashboardFrontendContractTests(unittest.TestCase):
         for label in ("Overview", "Inventory", "People", "Spells", "Features", "Notes"):
             self.assertEqual(self.source.count(f'data-dashboard-tab="{label}"'), 1)
 
-    def test_overview_inventory_people_and_spells_have_real_dashboard_content(self):
+    def test_all_dashboard_tabs_have_real_content(self):
         self.assertIn("function _renderDashboardOverview(panel, p)", self.source)
         self.assertIn("function _renderDashboardInventory(panel, selectedPlayer)", self.source)
         self.assertIn("function _renderDashboardPeople(panel, selectedPlayer)", self.source)
         self.assertIn("function _renderDashboardSpells(panel, player)", self.source)
+        self.assertIn("function _renderDashboardFeatures(panel, player)", self.source)
+        self.assertIn("function _renderDashboardNotes(panel, player)", self.source)
         self.assertIn("if (tabName === 'Overview')", self.source)
         self.assertIn("if (tabName === 'Inventory')", self.source)
         self.assertIn("if (tabName === 'People')", self.source)
         self.assertIn("if (tabName === 'Spells')", self.source)
-        self.assertIn("dashboard content is coming in a later phase", self.source)
-        for tab in ("Features", "Notes"):
-            self.assertNotIn(f"function _renderDashboard{tab}", self.source)
+        self.assertIn("if (tabName === 'Features')", self.source)
+        self.assertIn("if (tabName === 'Notes')", self.source)
 
     def test_tab_switching_is_client_side(self):
         self.assertIn("button.addEventListener('click', () => _setDashboardTab", self.source)
