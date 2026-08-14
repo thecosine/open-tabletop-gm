@@ -638,6 +638,11 @@
     border-radius: 4px;
     box-shadow: 0 5px 16px rgba(0,0,0,0.48);
   }
+  .encounter-card.active-turn:not(.resolved) {
+    background: #171d25;
+    border-color: #ffd166;
+    box-shadow: 0 0 0 1px rgba(255,209,102,0.28), 0 6px 20px rgba(0,0,0,0.55);
+  }
   .encounter-card.neutral { border-color: #ffd166; }
   .encounter-card.resolved { opacity: 0.72; border-color: #7a8a99; }
   .encounter-card-header {
@@ -1010,6 +1015,14 @@
   .sb-player.is-selected {
     background: rgba(180,140,60,0.1);
     box-shadow: inset 2px 0 rgba(220,180,90,0.65);
+  }
+  .sb-player.active-turn {
+    background: rgba(255,209,102,0.11);
+    box-shadow: inset 3px 0 rgba(255,209,102,0.9);
+  }
+  .sb-player.is-selected.active-turn {
+    background: rgba(255,209,102,0.15);
+    box-shadow: inset 3px 0 rgba(255,209,102,0.9), inset -2px 0 rgba(220,180,90,0.65);
   }
 
   /* ── Selected-player dashboard ── */
@@ -2030,19 +2043,24 @@
     margin-bottom: 6px;
   }
   .sb-turn-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     font-size: 10px;
     color: rgba(200,185,150,0.4);
-    padding: 2px 0 2px 14px;
+    padding: 3px 5px 3px 14px;
     line-height: 1.5;
     position: relative;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    border-radius: 3px;
   }
   .sb-turn-item.sb-turn-current {
-    color: rgba(220,200,160,0.95);
+    color: #fff3cf;
+    background: rgba(255,209,102,0.14);
+    box-shadow: inset 2px 0 #ffd166, 0 0 0 1px rgba(255,209,102,0.18);
     font-family: 'Cinzel', serif;
     font-size: 10px;
+    font-weight: 700;
   }
   .sb-turn-item.sb-turn-current::before {
     content: '▶';
@@ -2052,6 +2070,20 @@
     color: rgba(180,140,60,0.8);
     top: 4px;
   }
+  .sb-turn-symbol { flex: 0 0 auto; }
+  .sb-turn-name {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sb-turn-initiative {
+    flex: 0 0 2.5ch;
+    color: rgba(255,209,102,0.78);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+  .sb-turn-current .sb-turn-initiative { color: #ffd166; }
 
   /* ── CRIT / FUMBLE flash overlay ── */
   #flash-overlay {
@@ -8359,6 +8391,7 @@ function _buildEncounterActorCard(actor, turnOrder, resolved = false) {
   const disposition = String(actor.disposition || 'hostile').toLowerCase();
   card.className = `encounter-card ${disposition === 'neutral' ? 'neutral' : 'hostile'}${resolved ? ' resolved' : ''}`;
   card.dataset.encounterActorId = actor.id || actor.name || '';
+  card.dataset.encounterActorName = actor.name || '';
 
   const header = document.createElement('div');
   header.className = 'encounter-card-header';
@@ -8480,6 +8513,22 @@ function _renderEncounterActors(actors, turnOrder) {
   toggle.classList.toggle('has-data', hasEncounter);
   document.body.classList.toggle('encounter-active', hasEncounter);
   if (!hasEncounter) _setEncounterDrawerOpen(false);
+}
+
+function _actorNamesMatch(left, right) {
+  return Boolean(left && right) && String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
+}
+
+function _syncActiveTurnHighlights(turnOrder) {
+  const current = turnOrder && turnOrder.current;
+  document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
+    card.classList.toggle('active-turn', _actorNamesMatch(card.dataset.playerName, current));
+  });
+  document.querySelectorAll('.encounter-card').forEach(card => {
+    const active = !card.classList.contains('resolved') &&
+      _actorNamesMatch(card.dataset.encounterActorName, current);
+    card.classList.toggle('active-turn', active);
+  });
 }
 
 document.getElementById('encounter-toggle').addEventListener('click', () => {
@@ -8615,6 +8664,7 @@ function updateStats(stats) {
   if ('turn_order' in stats) {
     if (!stats.turn_order) {
       turnSection.style.display = 'none';
+      document.getElementById('sb-turn-list').replaceChildren();
       _currentTurnOrder = null;
     } else {
       const to = Array.isArray(stats.turn_order)
@@ -8634,11 +8684,18 @@ function updateStats(stats) {
         const name = entry.name;
         if (!name || entry.active === false || entry.defeated === true) return;
         const el = document.createElement('div');
-        el.className = 'sb-turn-item sb-turn-has-icon' + (name === merged.current ? ' sb-turn-current' : '');
+        el.className = 'sb-turn-item sb-turn-has-icon' + (_actorNamesMatch(name, merged.current) ? ' sb-turn-current' : '');
         const isFriendly = (name in _playerData) || _isPersistentSidebarActor(entry);
-        const iconSymbol = isFriendly ? '◆' : '⚔';
-        const initiative = entry.initiative == null ? '' : ` · ${entry.initiative}`;
-        el.textContent = `${iconSymbol} ${name}${initiative}`;
+        const symbol = document.createElement('span');
+        symbol.className = 'sb-turn-symbol';
+        symbol.textContent = isFriendly ? '◆' : '⚔';
+        const actorName = document.createElement('span');
+        actorName.className = 'sb-turn-name';
+        actorName.textContent = name;
+        const initiative = document.createElement('span');
+        initiative.className = 'sb-turn-initiative';
+        initiative.textContent = entry.initiative == null ? '' : entry.initiative;
+        el.append(symbol, actorName, initiative);
         list.appendChild(el);
       });
     }
@@ -8648,6 +8705,7 @@ function updateStats(stats) {
     Array.isArray(stats.encounter_actors) ? stats.encounter_actors : _encounterActors,
     _currentTurnOrder
   );
+  _syncActiveTurnHighlights(_currentTurnOrder);
 }
 
 let _currentTurnOrder = null;
