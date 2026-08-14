@@ -39,6 +39,7 @@ class PairedPactRuntimeTests(unittest.TestCase):
                 REPO / "campaigns/mythlon-chronicles/xp-events.json",
                 REPO / "campaigns/mythlon-chronicles/characters/Mythlon_Bladesinger/character_state.json",
             )
+            if path.exists()
         }
 
     @classmethod
