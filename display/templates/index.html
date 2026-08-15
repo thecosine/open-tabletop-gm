@@ -719,14 +719,9 @@
     margin-top: 10px;
   }
   .encounter-condition {
-    padding: 3px 6px;
-    color: #f2f5f7;
-    background: #222b35;
-    border: 1px solid #66ccff;
-    border-radius: 3px;
     font-size: 10px;
-    text-transform: uppercase;
   }
+  .encounter-card.resolved .encounter-conditions { opacity: 0.82; }
   #encounter-resolved {
     margin-top: 14px;
     color: #c8d1da;
@@ -902,6 +897,18 @@
     flex-wrap: wrap;
     gap: 6px;
   }
+  .sb-conditions:empty,
+  .sb-effects:empty { display: none; }
+  .sb-status-label {
+    flex: 1 0 100%;
+    color: rgba(220,200,160,0.68);
+    font-family: 'Cinzel', serif;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
   .sb-condition-pill {
     font-family: 'Cinzel', serif;
     font-size: 13px;
@@ -946,23 +953,25 @@
   .sb-effects {
     display: flex;
     flex-wrap: wrap;
-    gap: 3px;
-    margin-top: 4px;
+    gap: 5px;
+    margin-top: 10px;
   }
   .sb-effect-pill {
-    font-size: 9px;
-    padding: 2px 5px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 10px;
+    font-weight: 650;
+    padding: 3px 6px;
     border-radius: 3px;
-    background: rgba(60,110,60,0.2);
-    color: rgba(130,190,130,0.7);
-    border: 1px solid rgba(70,130,70,0.3);
+    background: rgba(55,120,80,0.22);
+    color: rgba(180,225,190,0.94);
+    border: 1px solid rgba(90,175,115,0.48);
     white-space: nowrap;
     cursor: default;
   }
   .sb-effect-pill.conc {
-    background: rgba(90,60,140,0.2);
-    color: rgba(170,140,220,0.75);
-    border-color: rgba(130,90,190,0.35);
+    background: rgba(100,70,155,0.28);
+    color: rgba(215,190,250,0.96);
+    border-color: rgba(165,120,225,0.58);
   }
   .sb-effect-pill.warning {
     background: rgba(150,90,20,0.3);
@@ -972,7 +981,7 @@
   }
   @keyframes effect-warn {
     0%, 100% { opacity: 1; }
-    50%       { opacity: 0.45; }
+    50%       { opacity: 0.72; }
   }
 
   /* ── Effect expiry block in feed ── */
@@ -1428,7 +1437,7 @@
   .action-tag { font-size: calc(9px * var(--text-scale, 1)); }
   #sidebar, #encounter-panel, #input-panel, #dashboard-shell, #quest-panel,
   #audio-controls, #settings-panel { font-size: calc(20px * var(--text-scale, 1)); }
-  .sb-name, .sb-class, .sb-stat-label, .sb-condition-pill,
+  .sb-name, .sb-class, .sb-stat-label, .sb-condition-pill, .sb-effect-pill, .sb-status-label,
   .sb-factions-header, .sb-faction-name, .sb-faction-standing,
   .sb-quests-header, .sb-quest-name, .sb-quest-status,
   .encounter-heading, .encounter-name, .encounter-meta-label, .encounter-meta-value {
@@ -3497,6 +3506,15 @@
     background: linear-gradient(to right, rgba(11,15,20,0.98) 84%, rgba(11,15,20,0.72));
     border-right-color: #7a8a99;
   }
+  :root[data-theme="contrast"] .sb-status-label { color: #ffd166; }
+  :root[data-theme="contrast"] .sb-condition-pill,
+  :root[data-theme="contrast"] .sb-effect-pill {
+    color: #f2f5f7;
+    border-width: 2px;
+  }
+  :root[data-theme="contrast"] .sb-effect-pill { background: #163123; border-color: #73d99a; }
+  :root[data-theme="contrast"] .sb-effect-pill.conc { background: #342354; border-color: #c3a1ff; }
+  :root[data-theme="contrast"] .sb-effect-pill.warning { background: #4b300d; border-color: #ffd166; }
   :root[data-theme="contrast"] #encounter-panel {
     background: #0b0f14;
     border-color: #ffd166;
@@ -4025,6 +4043,14 @@
     border-color: rgba(160, 100, 30, 0.5);
     text-shadow: none;
   }
+  :root[data-theme="light"] .sb-status-label { color: rgb(95, 65, 20); }
+  :root[data-theme="light"] .sb-condition-pill.danger { color: #8f2020; background: #f7dddd; border-color: #b64141; }
+  :root[data-theme="light"] .sb-condition-pill.warn { color: #7a4300; background: #f7e5c2; border-color: #b77416; }
+  :root[data-theme="light"] .sb-condition-pill.info { color: #174e78; background: #dcecf6; border-color: #397eaa; }
+  :root[data-theme="light"] .sb-condition-pill.buff { color: #17613b; background: #dcf0e3; border-color: #36835b; }
+  :root[data-theme="light"] .sb-effect-pill { color: #205b38; background: #dcefe3; border-color: #43845d; }
+  :root[data-theme="light"] .sb-effect-pill.conc { color: #59368a; background: #eadff5; border-color: #8059ad; }
+  :root[data-theme="light"] .sb-effect-pill.warning { color: #7a4300; background: #f7e5c2; border-color: #b77416; }
 
   /* Input panel — parchment plate with dark-ink text */
   :root[data-theme="light"] #input-panel {
@@ -6404,6 +6430,28 @@ const _DEFAULT_CONDITION_CLASS = {
   invisible: 'buff',
 };
 
+function _normalizedStatusName(value) {
+  return String(value || '').trim().toLocaleLowerCase();
+}
+
+function _conditionClass(condition, map = _DEFAULT_CONDITION_CLASS) {
+  return map[_normalizedStatusName(condition)] || 'info';
+}
+
+function _makeConditionPill(condition, map = _DEFAULT_CONDITION_CLASS, extraClass = '') {
+  const pill = document.createElement('span');
+  pill.className = `sb-condition-pill ${_conditionClass(condition, map)}${extraClass ? ` ${extraClass}` : ''}`;
+  pill.textContent = String(condition).trim();
+  return pill;
+}
+
+function _hasMatchingConcentrationEffect(player) {
+  const concentration = _normalizedStatusName(player && player.concentration);
+  if (!concentration || !Array.isArray(player.effects)) return false;
+  return player.effects.some(effect => effect && Boolean(effect.concentration) &&
+    _normalizedStatusName(effect.name) === concentration);
+}
+
 const DEFAULT_UI_MANIFEST = {
   manifest_version: 1, system: 'dnd5e', label: 'D&D 5e',
   sidebar: [
@@ -6507,19 +6555,23 @@ function _wTagList(card, p, w) {
   const map = w.class_map || _DEFAULT_CONDITION_CLASS;
   const el = document.createElement('div');
   el.className = 'sb-conditions';
+  el.setAttribute('aria-label', 'Active conditions');
   el.dataset.role = w.role || 'conditions';   // always appended (placeholder lets merges clear it)
-  items.forEach(c => {
-    const pill = document.createElement('span');
-    pill.className = `sb-condition-pill ${map[String(c).toLowerCase()] || 'info'}`;
-    pill.textContent = c;
-    el.appendChild(pill);
-  });
+  const active = Array.isArray(items) ? items.filter(c => _normalizedStatusName(c)) : [];
+  if (active.length) {
+    const label = document.createElement('span');
+    label.className = 'sb-status-label';
+    label.textContent = 'Conditions';
+    el.appendChild(label);
+    active.forEach(c => el.appendChild(_makeConditionPill(c, map)));
+  }
   card.appendChild(el);
 }
 
 function _wTagSingle(card, p, w) {
   const v = _bind(p, w.bind);
   if (!v) return;
+  if (w.bind === 'concentration' && _hasMatchingConcentrationEffect(p)) return;
   const el = document.createElement('div');
   el.className = w.cls || 'sb-concentrate';
   el.dataset.role = w.role || 'concentration';
@@ -6531,8 +6583,15 @@ function _wEffects(card, p, w) {
   const effects = _bind(p, w.bind) || [];
   const el = document.createElement('div');
   el.className = 'sb-effects';
+  el.setAttribute('aria-label', 'Active effects');
   el.dataset.role = 'effects';
-  effects.forEach(eff => el.appendChild(_makeEffectPill(eff, p.name)));
+  if (Array.isArray(effects) && effects.length) {
+    const label = document.createElement('span');
+    label.className = 'sb-status-label';
+    label.textContent = 'Active effects';
+    el.appendChild(label);
+    effects.forEach(eff => el.appendChild(_makeEffectPill(eff, p.name)));
+  }
   card.appendChild(el);
 }
 
@@ -7010,10 +7069,7 @@ function _renderCharacterStatus(grid, p) {
     const list = document.createElement('div');
     list.className = 'dashboard-condition-list';
     conditions.forEach(condition => {
-      const pill = document.createElement('span');
-      pill.className = `sb-condition-pill ${_DEFAULT_CONDITION_CLASS[String(condition).toLowerCase()] || 'info'}`;
-      pill.textContent = condition;
-      list.appendChild(pill);
+      list.appendChild(_makeConditionPill(condition));
     });
     status.body.appendChild(list);
   } else {
@@ -8303,18 +8359,19 @@ function _fmtDuration(ms) {
 
 function _makeEffectPill(eff, ownerName) {
   const pill = document.createElement('span');
-  const isConc = eff.concentration;
+  const isConc = Boolean(eff.concentration);
+  const label = isConc ? `◈ Concentration · ${eff.name}` : `⧗ ${eff.name}`;
   let warn = false;
 
   if (eff.duration_type === 'rounds') {
     const r = eff.duration_remaining || 0;
-    pill.textContent = `⧗ ${eff.name} · ${r} rnd`;
+    pill.textContent = `${label} · ${r} rnd`;
     warn = r <= 2;
     pill.dataset.durationType = 'rounds';
   } else if (eff.duration_type === 'minutes' || eff.duration_type === 'hours') {
     const expireAt = (eff.started_at + eff.duration_seconds) * 1000;
     const remaining = Math.max(0, expireAt - Date.now());
-    pill.textContent = `⧗ ${eff.name} ${_fmtDuration(remaining)}`;
+    pill.textContent = `${label} · ${_fmtDuration(remaining)}`;
     warn = remaining < eff.duration_seconds * 100;  // last 10%
     pill.dataset.durationType = 'time';
     pill.dataset.expireAt     = expireAt;
@@ -8322,7 +8379,7 @@ function _makeEffectPill(eff, ownerName) {
     pill.dataset.owner        = ownerName;
     pill.dataset.spell        = eff.name;
   } else {
-    pill.textContent = `⧗ ${eff.name} ∞`;
+    pill.textContent = `${label} · ∞`;
     pill.dataset.durationType = 'indefinite';
   }
 
@@ -8350,11 +8407,12 @@ setInterval(() => {
     const expireAt = +pill.dataset.expireAt;
     const remaining = Math.max(0, expireAt - Date.now());
     const spell = pill.dataset.spell;
-    pill.textContent = `⧗ ${spell} ${_fmtDuration(remaining)}`;
+    const isConc = pill.classList.contains('conc');
+    const label = isConc ? `◈ Concentration · ${spell}` : `⧗ ${spell}`;
+    pill.textContent = `${label} · ${_fmtDuration(remaining)}`;
 
     const totalMs = +pill.dataset.totalMs || 1;
     const warn = remaining < totalMs * 0.1 || remaining < 10000;
-    const isConc = pill.classList.contains('conc');
     pill.className = 'sb-effect-pill' + (isConc ? ' conc' : '') + (warn ? ' warning' : '');
 
     if (remaining <= 0) {
@@ -8484,14 +8542,19 @@ function _buildEncounterActorCard(actor, turnOrder, resolved = false) {
     card.appendChild(row);
   }
 
-  if (Array.isArray(actor.conditions) && actor.conditions.length) {
+  const activeConditions = Array.isArray(actor.conditions)
+    ? actor.conditions.filter(condition => _normalizedStatusName(condition))
+    : [];
+  if (activeConditions.length) {
     const conditions = document.createElement('div');
     conditions.className = 'encounter-conditions';
-    actor.conditions.forEach(condition => {
-      const pill = document.createElement('span');
-      pill.className = 'encounter-condition';
-      pill.textContent = condition;
-      conditions.appendChild(pill);
+    conditions.setAttribute('aria-label', 'Active conditions');
+    const label = document.createElement('span');
+    label.className = 'sb-status-label';
+    label.textContent = 'Conditions';
+    conditions.appendChild(label);
+    activeConditions.forEach(condition => {
+      conditions.appendChild(_makeConditionPill(condition, _DEFAULT_CONDITION_CLASS, 'encounter-condition'));
     });
     card.appendChild(conditions);
   }
