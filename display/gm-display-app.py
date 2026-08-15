@@ -178,6 +178,16 @@ def _atomic_write_json(path: pathlib.Path, value: object) -> None:
     _atomic_write_bytes(path, json.dumps(value).encode("utf-8"))
 
 
+def _atomic_create_json(path: pathlib.Path, value: object) -> None:
+    """Publish complete JSON only if no file already exists at path."""
+    temporary = _stage_bytes(path, json.dumps(value, ensure_ascii=False).encode("utf-8"))
+    try:
+        os.link(temporary, path)
+        _fsync_directory(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def _atomic_restore(path: pathlib.Path, exists: bool, value: bytes = b"") -> None:
     if exists:
         _atomic_write_bytes(path, value)
@@ -3991,6 +4001,47 @@ def submit_now():
             f.write(content)
     except Exception:
         return "Error", 500
+    return "", 204
+
+
+@app.route("/player-input/send", methods=["POST"])
+def send_player_input():
+    """Write one attributed action directly to the wrapper trigger."""
+    if not _token_ok():
+        return "Forbidden", 403
+    if not _rate_ok(request.remote_addr):
+        return "Too Many Requests", 429
+
+    device_id = request.headers.get("X-DND-Device", "")
+    status = _device_ok(device_id, request.remote_addr)
+    if status == "denied":
+        return "Forbidden", 403
+    if status == "pending":
+        return jsonify({"status": "pending"}), 202
+
+    data = request.get_json(force=True, silent=True) or {}
+    character = str(data.get("character", ""))[:50].strip()
+    raw_text = str(data.get("text", ""))
+    if len(raw_text) > MAX_PLAYER_INPUT_CHARS:
+        return jsonify({"error": f"Action exceeds {MAX_PLAYER_INPUT_CHARS:,} characters"}), 413
+    text = _sanitize_input(raw_text)
+    if not character or not text.strip():
+        return "Bad Request", 400
+
+    with _stats_lock:
+        known = {p["name"] for p in _current_stats.get("players", [])}
+    if not _char_ok(character, known):
+        return "Forbidden", 403
+
+    try:
+        _atomic_create_json(
+            pathlib.Path(TRIGGER_FILE),
+            [{"character": character, "text": text}],
+        )
+    except FileExistsError:
+        return jsonify({"error": "A player action is already being processed"}), 409
+    except OSError:
+        return jsonify({"error": "Unable to submit player action"}), 500
     return "", 204
 
 
