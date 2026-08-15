@@ -69,7 +69,7 @@ carries (see `display/push_stats.py`).
 
 | `type` | Renders | Binds to (shape) | Key options |
 |--------|---------|------------------|-------------|
-| `bar` | Labelled value + fill bar | `{current, max, temp?}` | `cur`,`max` (field names), `color:"hp"` for HP's dynamic colour, `temp`, `icon`, `fill_class`, `require_cur` (only draw when current present) |
+| `bar` | Labelled value + fill bar | `{current, max, temp?}` | `cur`,`max` (field names), `color:"hp"` for HP's dynamic colour, `temp`, `icon`, `fill_class`, `require_cur` (only draw when current present), `show_level` (append the player's level to the label when present) |
 | `stat_lines` | Inline `Label value` lines | each line binds a scalar | `lines:[{label,bind,format?}]`; `format:"hd"` reads `{remaining,max,die}` |
 | `tag_list` | List of tags | `[ "name", ... ]` | `class_map` (tag → severity class: `danger`/`warn`/`info`/`buff`) |
 | `tag_single` | One tag, or hidden if empty | `string \| null` | `prefix` (e.g. `"◈ "`) |
@@ -81,7 +81,7 @@ carries (see `display/push_stats.py`).
 
 Notes:
 - `bar` covers HP (dynamic colour via `color:"hp"`, `temp` row) and XP (`max:"next"`,
-  `require_cur:true`).
+  `require_cur:true`, optionally `show_level:true`).
 - For a **single-pool resource** like Shadowrun Edge or Cyberpunk Luck, use a `bar`
   (`{current,max}`) or model it as a level-1 `pip_levels`/`badge_set` entry,
   whichever reads better.

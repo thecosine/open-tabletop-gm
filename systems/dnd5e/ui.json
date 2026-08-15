@@ -3,7 +3,7 @@
   "system": "dnd5e",
   "label": "D&D 5e",
 
-  "_comment": "Reference manifest. Mirrors the renderer's built-in default exactly, so it reproduces the original hardcoded D&D 5e display. Widgets self-hide when their bound field is absent (a non-caster shows no spell slots, etc.). See systems/UI-MANIFEST.md for the widget catalog.",
+  "_comment": "Reference manifest. Mirrors the renderer's built-in D&D 5e default. Widgets self-hide when their bound field is absent (a non-caster shows no spell slots, etc.). See systems/UI-MANIFEST.md for the widget catalog.",
 
   "sidebar": [
     { "type": "bar", "label": "HP", "bind": "hp", "icon": null,
@@ -12,16 +12,8 @@
 
     { "type": "bar", "label": "XP", "bind": "xp", "icon": null,
       "row_class": "sb-xp-row", "num_class": "sb-xp-nums", "fill_role": "xp-fill",
-      "fill_class": "sb-xp-bar", "cur": "current", "max": "next", "require_cur": true },
-
-    { "type": "stat_lines", "lines": [
-      { "label": "AC", "bind": "ac" },
-      { "label": "Init", "bind": "initiative" },
-      { "label": "Spd", "bind": "speed" },
-      { "label": "HD", "bind": "hit_dice", "format": "hd" }
-    ] },
-
-    { "type": "tag_list", "bind": "conditions" },
+      "fill_class": "sb-xp-bar", "cur": "current", "max": "next", "require_cur": true,
+      "show_level": true },
 
     { "type": "tag_single", "bind": "concentration", "prefix": "◈ " },
 

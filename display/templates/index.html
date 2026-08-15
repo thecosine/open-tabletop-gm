@@ -791,8 +791,8 @@
 
   /* ── Player card ── */
   .sb-player {
-    margin-bottom: 18px;
-    padding-bottom: 18px;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
     border-bottom: 1px solid rgba(180,140,60,0.22);
   }
   .sb-player:last-of-type { border-bottom: none; margin-bottom: 0; }
@@ -800,27 +800,43 @@
   .sb-identity-header {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 9px;
     min-width: 0;
-    margin-bottom: 14px;
+    margin-bottom: 8px;
   }
-  .sb-identity-copy { min-width: 0; flex: 1; }
+  .sb-identity-copy { min-width: 72px; flex: 1; }
 
   .sb-name {
     font-family: 'Cinzel', serif;
-    font-size: 17px;
+    font-size: 15px;
     line-height: 1.25;
-    letter-spacing: 1.5px;
+    letter-spacing: 1.1px;
     text-transform: uppercase;
     color: rgba(200,165,80,0.9);
-    margin-bottom: 4px;
-  }
-  .sb-identity {
-    font-size: 13px;
-    color: rgba(225,228,232,0.82);
-    line-height: 1.5;
     margin-bottom: 0;
   }
+  .sb-status-badges {
+    display: flex;
+    flex: 0 1 70px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-left: auto;
+  }
+  .sb-status-badge {
+    display: inline-flex;
+    min-width: 22px;
+    height: 22px;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 4px;
+    border: 1px solid;
+    border-radius: 4px;
+    font: 700 11px/1 ui-sans-serif, system-ui, sans-serif;
+  }
+  .sb-status-badge-count { font-size: 9px; }
 
   /* ── HP row ── */
   .sb-hp-row {
@@ -843,12 +859,12 @@
     margin-left: auto;
   }
   .sb-bar-track {
-    height: 9px;
+    height: 7px;
     background: rgba(255,255,255,0.16);
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 5px;
     overflow: hidden;
-    margin-bottom: 10px;
+    margin-bottom: 7px;
   }
   .sb-bar-fill {
     height: 100%;
@@ -858,7 +874,7 @@
   .sb-hp-temp-row {
     font-size: 13px;
     color: rgba(120,180,230,0.6);
-    margin-bottom: 10px;
+    margin-bottom: 7px;
   }
 
   /* ── XP row ── */
@@ -873,6 +889,15 @@
     font-size: 9px;
     color: rgba(180,140,60,0.55);
     margin-left: auto;
+  }
+  .sb-xp-level {
+    margin-left: 6px;
+    color: rgba(225,228,232,0.7);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.2px;
+    text-transform: none;
   }
   .sb-xp-bar { background: rgba(180,140,60,0.4); }
 
@@ -937,6 +962,26 @@
     color: rgba(80,200,130,0.9);
     border-color: rgba(80,200,130,0.35);
     background: rgba(80,200,130,0.08);
+  }
+  .sb-status-badge.danger {
+    color: rgba(220,80,80,0.95);
+    border-color: rgba(220,80,80,0.45);
+    background: rgba(220,80,80,0.12);
+  }
+  .sb-status-badge.warn {
+    color: rgba(220,150,50,0.95);
+    border-color: rgba(220,150,50,0.45);
+    background: rgba(220,150,50,0.12);
+  }
+  .sb-status-badge.info {
+    color: rgba(100,160,220,0.95);
+    border-color: rgba(100,160,220,0.45);
+    background: rgba(100,160,220,0.12);
+  }
+  .sb-status-badge.buff {
+    color: rgba(80,200,130,0.95);
+    border-color: rgba(80,200,130,0.45);
+    background: rgba(80,200,130,0.12);
   }
   /* Concentration tag */
   .sb-concentrate {
@@ -2821,8 +2866,8 @@
   .sb-class-icon {
     position: static;
     display: grid;
-    flex: 0 0 64px;
-    width: 64px; height: 64px;
+    flex: 0 0 48px;
+    width: 48px; height: 48px;
     box-sizing: border-box;
     opacity: 0.88;
     filter: drop-shadow(0 0 7px rgba(210,165,70,0.28));
@@ -2832,8 +2877,8 @@
   .sb-player:hover .sb-class-icon { opacity: 1; }
   .sb-player-portrait {
     position: static;
-    flex: 0 0 64px;
-    width: 64px; height: 64px;
+    flex: 0 0 48px;
+    width: 48px; height: 48px;
     box-sizing: border-box;
     border: 2px solid rgba(220,180,90,0.68);
     border-radius: 5px;
@@ -3508,6 +3553,7 @@
   }
   :root[data-theme="contrast"] .sb-status-label { color: #ffd166; }
   :root[data-theme="contrast"] .sb-condition-pill,
+  :root[data-theme="contrast"] .sb-status-badge,
   :root[data-theme="contrast"] .sb-effect-pill {
     color: #f2f5f7;
     border-width: 2px;
@@ -4048,6 +4094,10 @@
   :root[data-theme="light"] .sb-condition-pill.warn { color: #7a4300; background: #f7e5c2; border-color: #b77416; }
   :root[data-theme="light"] .sb-condition-pill.info { color: #174e78; background: #dcecf6; border-color: #397eaa; }
   :root[data-theme="light"] .sb-condition-pill.buff { color: #17613b; background: #dcf0e3; border-color: #36835b; }
+  :root[data-theme="light"] .sb-status-badge.danger { color: #8f2020; background: #f7dddd; border-color: #b64141; }
+  :root[data-theme="light"] .sb-status-badge.warn { color: #7a4300; background: #f7e5c2; border-color: #b77416; }
+  :root[data-theme="light"] .sb-status-badge.info { color: #174e78; background: #dcecf6; border-color: #397eaa; }
+  :root[data-theme="light"] .sb-status-badge.buff { color: #17613b; background: #dcf0e3; border-color: #36835b; }
   :root[data-theme="light"] .sb-effect-pill { color: #205b38; background: #dcefe3; border-color: #43845d; }
   :root[data-theme="light"] .sb-effect-pill.conc { color: #59368a; background: #eadff5; border-color: #8059ad; }
   :root[data-theme="light"] .sb-effect-pill.warning { color: #7a4300; background: #f7e5c2; border-color: #b77416; }
@@ -6414,7 +6464,7 @@ function _hpColor(pct) {
 // The server injects the active system's systems/<system>/ui.json as
 // window.GM_UI_MANIFEST. When it's null/invalid we fall back to
 // DEFAULT_UI_MANIFEST below, which reproduces the original hardcoded D&D 5e
-// layout exactly — so the display renders identically with or without a
+// layout — so the display renders identically with or without a
 // manifest file. A new game system ships its own ui.json to define its
 // sidebar widgets, combat strip, and attribute grid. See systems/UI-MANIFEST.md.
 //
@@ -6445,6 +6495,40 @@ function _makeConditionPill(condition, map = _DEFAULT_CONDITION_CLASS, extraClas
   return pill;
 }
 
+function _makeSidebarStatusBadges(player) {
+  const counts = {danger: 0, warn: 0, info: 0, buff: 0};
+  const conditions = Array.isArray(player && player.conditions) ? player.conditions : [];
+  conditions.filter(condition => _normalizedStatusName(condition)).forEach(condition => {
+    counts[_conditionClass(condition)] += 1;
+  });
+  const active = Object.entries(counts).filter(([, count]) => count > 0);
+  if (!active.length) return null;
+
+  const glyphs = {danger: '!', warn: '^', info: 'i', buff: '+'};
+  const labels = {danger: 'danger', warn: 'warning', info: 'informational', buff: 'beneficial'};
+  const badges = document.createElement('div');
+  badges.className = 'sb-status-badges';
+  active.forEach(([category, count]) => {
+    const badge = document.createElement('span');
+    badge.className = `sb-status-badge ${category}`;
+    badge.setAttribute('aria-label', `${count} ${labels[category]} condition${count === 1 ? '' : 's'}`);
+    const glyph = document.createElement('span');
+    glyph.className = 'sb-status-badge-glyph';
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = glyphs[category];
+    badge.appendChild(glyph);
+    if (count > 1) {
+      const countEl = document.createElement('span');
+      countEl.className = 'sb-status-badge-count';
+      countEl.setAttribute('aria-hidden', 'true');
+      countEl.textContent = count;
+      badge.appendChild(countEl);
+    }
+    badges.appendChild(badge);
+  });
+  return badges;
+}
+
 function _hasMatchingConcentrationEffect(player) {
   const concentration = _normalizedStatusName(player && player.concentration);
   if (!concentration || !Array.isArray(player.effects)) return false;
@@ -6460,11 +6544,8 @@ const DEFAULT_UI_MANIFEST = {
       cur: 'current', max: 'max', color: 'hp', temp: 'temp' },
     { type: 'bar', label: 'XP', bind: 'xp', icon: null,
       row_class: 'sb-xp-row', num_class: 'sb-xp-nums', fill_role: 'xp-fill',
-      fill_class: 'sb-xp-bar', cur: 'current', max: 'next', require_cur: true },
-    { type: 'stat_lines', lines: [
-      { label: 'AC', bind: 'ac' }, { label: 'Init', bind: 'initiative' },
-      { label: 'Spd', bind: 'speed' }, { label: 'HD', bind: 'hit_dice', format: 'hd' } ] },
-    { type: 'tag_list', bind: 'conditions' },
+      fill_class: 'sb-xp-bar', cur: 'current', max: 'next', require_cur: true,
+      show_level: true },
     { type: 'tag_single', bind: 'concentration', prefix: '◈ ' },
     { type: 'effects', bind: 'effects' },
     { type: 'badge_set', bind: 'milestones' },
@@ -6512,6 +6593,12 @@ function _wBar(card, p, w) {
   row.innerHTML =
     `${w.icon ? `<img src="${w.icon}" class="sb-row-icon" alt="">` : ''}<span class="sb-label">${w.label || ''}</span>
     <span class="${w.num_class || 'sb-hp-nums'}">${cur ?? '—'} / ${maxLabel}</span>`;
+  if (w.show_level && p.level != null && String(p.level).trim()) {
+    const level = document.createElement('span');
+    level.className = 'sb-xp-level';
+    level.textContent = `Lv ${p.level}`;
+    row.querySelector('.sb-label').appendChild(level);
+  }
   card.appendChild(row);
   const track = document.createElement('div');
   track.className = 'sb-bar-track';
@@ -6683,7 +6770,7 @@ function _buildPlayerCard(p, solo) {
   card.setAttribute('role', 'button');
   card.tabIndex = 0;
 
-  // Identity header keeps portrait/fallback separate from live stat widgets.
+  // Compact identity header: detailed identity remains in the dashboard.
   const identityHeader = document.createElement('div');
   identityHeader.className = 'sb-identity-header';
   identityHeader.appendChild(_makePlayerPortrait(p, 'sb-class-icon'));
@@ -6696,29 +6783,9 @@ function _buildPlayerCard(p, solo) {
   nameEl.textContent = p.name || '—';
   identityCopy.appendChild(nameEl);
 
-  // Internal identity is primary; a distinct public identity remains visible.
-  const identEl = document.createElement('div');
-  identEl.className = 'sb-identity';
-  const primary = document.createElement('div');
-  primary.className = 'identity-primary';
-  primary.textContent = [_trueIdentityClass(p), p.level ? `Level ${p.level}` : '', p.race]
-    .filter(Boolean).join(' · ') || '—';
-  identEl.appendChild(primary);
-  const publicClass = _publicIdentityClass(p);
-  if (publicClass && publicClass !== _trueIdentityClass(p)) {
-    const publicLine = document.createElement('div');
-    publicLine.className = 'identity-public';
-    publicLine.textContent = `Public identity: ${publicClass}`;
-    identEl.appendChild(publicLine);
-  }
-  if (p.background) {
-    const background = document.createElement('div');
-    background.className = 'identity-public';
-    background.textContent = p.background;
-    identEl.appendChild(background);
-  }
-  identityCopy.appendChild(identEl);
   identityHeader.appendChild(identityCopy);
+  const statusBadges = _makeSidebarStatusBadges(p);
+  if (statusBadges) identityHeader.appendChild(statusBadges);
   card.appendChild(identityHeader);
 
   // Stat widgets — driven by the active system's UI manifest (systems/<system>/ui.json
