@@ -107,6 +107,36 @@ class ComposerMarkupTests(unittest.TestCase):
         self.assertIn("_stageAction()", handler)
         self.assertIn("_stageBtn.addEventListener('click', _stageAction)", self.source)
 
+    def test_send_button_appears_immediately_before_stage_and_invokes_direct_send(self):
+        footer = re.search(r'<div id="input-footer".*?</div>', self.source, re.DOTALL).group(0)
+        self.assertRegex(footer, r'<button id="send-btn">Send</button>\s*<button id="stage-btn">Stage</button>')
+        self.assertIn("_sendBtn.addEventListener('click', _sendAction)", self.source)
+        sender = self.source.split("async function _sendAction()", 1)[1].split(
+            "// ── Toggle ready", 1
+        )[0]
+        self.assertIn("fetch('/player-input/send'", sender)
+
+    def test_direct_send_clears_only_after_success_and_preserves_failure_text(self):
+        sender = self.source.split("async function _sendAction()", 1)[1].split(
+            "// ── Toggle ready", 1
+        )[0]
+        success = sender.split("if (res.status === 204)", 1)[1].split("return;", 1)[0]
+        failure = sender.split("if (res.status === 204)", 1)[1].split("return;", 1)[1]
+        self.assertIn("_inputText.value = ''", success)
+        self.assertIn("_resizeInputComposer()", success)
+        self.assertIn("_inputText.focus({ preventScroll: true })", success)
+        self.assertNotIn("_inputText.value = ''", failure)
+        self.assertIn("Retry Send", failure)
+
+    def test_ctrl_or_cmd_enter_still_stages_and_shift_enter_still_adds_newline(self):
+        handler = re.search(
+            r"_inputText\.addEventListener\('keydown'.*?\n\}\);", self.source, re.DOTALL
+        ).group(0)
+        self.assertIn("if (e.key === 'Enter' && e.shiftKey) return", handler)
+        self.assertIn("e.ctrlKey || e.metaKey", handler)
+        self.assertIn("_stageAction()", handler)
+        self.assertNotIn("_sendAction()", handler)
+
     def test_empty_input_and_over_limit_input_are_not_submitted(self):
         self.assertIn("if (!text.trim()) {", self.source)
         self.assertIn("if (text.length > _MAX_INPUT_CHARS)", self.source)
@@ -476,6 +506,7 @@ class StagingTransportTests(unittest.TestCase):
         cls.check_input.write_bytes((DISPLAY / "check_input.py").read_bytes())
         cls.app = _load_module(DISPLAY / "gm-display-app.py", "party_input_display_app")
         cls.app.QUEUE_FILE = str(cls.tmp_path / ".input_queue")
+        cls.app.TRIGGER_FILE = str(cls.tmp_path / ".input_trigger")
         cls.app._token_ok = lambda: True
         cls.app._rate_ok = lambda _address: True
         cls.app._device_ok = lambda _device, _address: "approved"
@@ -496,6 +527,7 @@ class StagingTransportTests(unittest.TestCase):
         )
         self.gm_grant = self.app._authorize_combat_device(self.gm_device, "gm", ["test-campaign"], [])
         Path(self.app.QUEUE_FILE).unlink(missing_ok=True)
+        Path(self.app.TRIGGER_FILE).unlink(missing_ok=True)
 
     def _combat_headers(self, device_id=None):
         selected = device_id or self.player_device
@@ -509,6 +541,48 @@ class StagingTransportTests(unittest.TestCase):
         return self.client.post(
             "/player-input/stage", json={"character": "Mythlon", "text": text}
         )
+
+    def _send(self, text: str, character: str = "Mythlon"):
+        return self.client.post(
+            "/player-input/send", json={"character": character, "text": text}
+        )
+
+    def test_direct_send_creates_immediate_attributed_multiline_trigger(self):
+        text = 'I step forward.\n\n"Stay behind me."\nI raise my shield.'
+        response = self._send(text)
+        self.assertEqual(response.status_code, 204)
+        payload = json.loads(Path(self.app.TRIGGER_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(payload, [{"character": "Mythlon", "text": text}])
+        self.assertFalse(Path(self.app.QUEUE_FILE).exists())
+
+    def test_direct_send_rejects_empty_and_over_limit_input(self):
+        empty = self._send(" \n\n ")
+        oversized = self._send("x" * (self.app.MAX_PLAYER_INPUT_CHARS + 1))
+        self.assertEqual(empty.status_code, 400)
+        self.assertEqual(oversized.status_code, 413)
+        self.assertFalse(Path(self.app.TRIGGER_FILE).exists())
+
+    def test_direct_send_requires_token_authorization(self):
+        with mock.patch.object(self.app, "_token_ok", return_value=False):
+            response = self._send("Advance carefully.")
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Path(self.app.TRIGGER_FILE).exists())
+
+    def test_direct_send_does_not_mutate_staged_actions(self):
+        self.app._staged["Mythlon"] = {
+            "text": "Previously staged", "ready": False, "timestamp": 1,
+        }
+        before = json.loads(json.dumps(self.app._staged))
+        response = self._send("Immediate action")
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.app._staged, before)
+
+    def test_direct_send_refuses_to_overwrite_existing_trigger(self):
+        existing = b'[{"character":"Other","text":"Already pending"}]'
+        Path(self.app.TRIGGER_FILE).write_bytes(existing)
+        response = self._send("Do not overwrite this")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Path(self.app.TRIGGER_FILE).read_bytes(), existing)
 
     def test_typed_browser_attack_reaches_executable_dispatcher(self):
         payload = {

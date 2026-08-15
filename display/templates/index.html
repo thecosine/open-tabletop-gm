@@ -1434,7 +1434,7 @@
   .encounter-heading, .encounter-name, .encounter-meta-label, .encounter-meta-value {
     font-size: calc(10px * var(--text-scale, 1));
   }
-  #input-panel-label, #player-input-label, #stage-btn, #skip-turn-btn,
+  #input-panel-label, #player-input-label, #stage-btn, #skip-turn-btn, #send-btn,
   .char-tab, .ready-btn, .skip-btn, #input-guidance, #input-error {
     font-size: calc(9px * var(--text-scale, 1));
   }
@@ -2413,6 +2413,7 @@
     color: rgba(215,120,80,0.95); border-color: rgba(195,100,65,0.65);
     background: rgba(35,10,5,0.65);
   }
+  #send-btn,
   #stage-btn {
     font-family: 'Cinzel', serif; font-size: 8px;
     letter-spacing: 1.8px; text-transform: uppercase;
@@ -2421,10 +2422,17 @@
     border-radius: 3px; padding: 6px 16px;
     cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
   }
+  #send-btn:hover,
   #stage-btn:hover {
     color: rgba(220,185,100,1); border-color: rgba(180,140,60,0.8);
     background: rgba(30,20,8,0.75);
   }
+  #send-btn {
+    color: rgba(225,195,120,0.95);
+    border-color: rgba(210,165,70,0.72);
+    background: rgba(36,24,7,0.78);
+  }
+  #send-btn:disabled,
   #stage-btn:disabled { opacity: 0.4; pointer-events: none; }
   #staged-queue { display: flex; flex-direction: column; gap: 5px; }
   .staged-entry {
@@ -2982,6 +2990,7 @@
   body.input-only #input-body[data-active-tab="move"] #input-footer {
     padding: 0 12px 12px;
   }
+  body.input-only #input-body[data-active-tab="move"] #send-btn,
   body.input-only #input-body[data-active-tab="move"] #stage-btn {
     min-height: 48px;
     padding: 14px 18px;
@@ -4076,12 +4085,14 @@
   :root[data-theme="light"] .staged-text { color: rgba(40, 28, 14, 0.85); }
 
   /* Action buttons — dark plate + cream text for affordance against parchment */
+  :root[data-theme="light"] #send-btn,
   :root[data-theme="light"] #stage-btn,
   :root[data-theme="light"] .dm-respond-btn {
     background: rgb(70, 50, 18);
     border-color: rgba(140, 95, 20, 0.8);
     color: rgb(245, 238, 222);
   }
+  :root[data-theme="light"] #send-btn:hover:not(:disabled),
   :root[data-theme="light"] #stage-btn:hover:not(:disabled),
   :root[data-theme="light"] .dm-respond-btn:hover:not(:disabled) {
     background: rgb(95, 70, 28);
@@ -4324,6 +4335,7 @@
       border-color: rgba(140, 95, 20, 0.85);
       background: rgba(220, 195, 130, 0.65);
     }
+    :root:not([data-theme]) #send-btn,
     :root:not([data-theme]) #stage-btn,
     :root:not([data-theme]) .dm-respond-btn {
       background: rgb(70, 50, 18);
@@ -4544,6 +4556,7 @@
     <div id="input-error" role="status" aria-live="polite" data-tab-section="move"></div>
     <div id="input-footer" data-tab-section="move">
       <button id="skip-turn-btn" style="display:none" title="Skip this character's turn">Skip Turn</button>
+      <button id="send-btn">Send</button>
       <button id="stage-btn">Stage</button>
     </div>
     <!-- Phone-only dice pad (shown by ?view=input) -->
@@ -9434,6 +9447,7 @@ const _inputBadge      = document.getElementById('input-badge');
 const _inputArrow      = document.getElementById('input-toggle-arrow');
 const _charTabs        = document.getElementById('char-tabs');
 const _inputText       = document.getElementById('player-input-text');
+const _sendBtn         = document.getElementById('send-btn');
 const _stageBtn        = document.getElementById('stage-btn');
 const _skipTurnBtn     = document.getElementById('skip-turn-btn');
 const _stagedQueueEl   = document.getElementById('staged-queue');
@@ -9723,6 +9737,54 @@ async function _stageAction() {
   }
 }
 
+// ── Send an action directly to the wrapper trigger ─────────────────
+async function _sendAction() {
+  const text = _inputText.value;
+  if (!text.trim()) {
+    _inputError.textContent = 'Enter an action before sending.';
+    _inputText.focus();
+    return;
+  }
+  if (text.length > _MAX_INPUT_CHARS) {
+    _inputError.textContent = `Action is ${text.length - _MAX_INPUT_CHARS} characters over the limit.`;
+    _inputError.dataset.validation = 'length';
+    _inputText.focus();
+    return;
+  }
+
+  _sendBtn.disabled = true;
+  _sendBtn.textContent = 'Sending…';
+  _inputError.textContent = '';
+  try {
+    const res = await fetch('/player-input/send', {
+      method: 'POST',
+      headers: _authHeaders(),
+      body: JSON.stringify({ character: _selectedChar, text }),
+    });
+    if (res.status === 204) {
+      _inputText.value = '';
+      _resizeInputComposer();
+      _inputText.focus({ preventScroll: true });
+      _sendBtn.textContent = 'Send';
+      return;
+    }
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body.error || (body.status === 'pending' ? 'Device approval is required.' : '');
+    } catch (_) { /* status below remains honest when no JSON body is available */ }
+    _inputError.textContent = detail || `Send failed (${res.status}). Retry when ready.`;
+    _sendBtn.textContent = 'Retry Send';
+    _inputText.focus({ preventScroll: true });
+  } catch (_) {
+    _inputError.textContent = 'Send failed due to a network error. Retry when connected.';
+    _sendBtn.textContent = 'Retry Send';
+    _inputText.focus({ preventScroll: true });
+  } finally {
+    _sendBtn.disabled = false;
+  }
+}
+
 // ── Toggle ready for a staged char ───────────────────────────────
 async function _toggleReady(char) {
   try {
@@ -9756,6 +9818,7 @@ async function _skipTurn(char) {
   } catch (_) { /* silently ignore */ }
 }
 
+_sendBtn.addEventListener('click', _sendAction);
 _stageBtn.addEventListener('click', _stageAction);
 _skipTurnBtn.addEventListener('click', () => _skipTurn(_selectedChar));
 _inputText.addEventListener('input', _resizeInputComposer);
