@@ -15,10 +15,10 @@ def _between(start: str, end: str) -> str:
 
 
 class ConditionsEffectsUxTests(unittest.TestCase):
-    def test_player_and_encounter_conditions_share_classification_helper(self):
-        player = _between("function _wTagList", "function _wTagSingle")
+    def test_sidebar_badges_and_encounter_conditions_share_classification_helper(self):
+        player = _between("function _makeSidebarStatusBadges", "function _hasMatchingConcentrationEffect")
         encounter = _between("const activeConditions = Array.isArray(actor.conditions)", "return card;")
-        self.assertIn("_makeConditionPill(c, map)", player)
+        self.assertIn("_conditionClass(condition)", player)
         self.assertIn("_makeConditionPill(condition, _DEFAULT_CONDITION_CLASS, 'encounter-condition')", encounter)
         self.assertIn("_DEFAULT_CONDITION_CLASS", SOURCE)
 
