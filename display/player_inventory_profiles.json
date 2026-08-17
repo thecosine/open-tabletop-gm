@@ -112,18 +112,20 @@
         "schema_version": 1,
         "groups": {
           "carried": [
-            {"id": "worn-armor-shield-configuration", "name": "Worn armor and shield configuration", "notes": "AC 16; armor type remains unspecified"},
             {"id": "personal-mace", "name": "Personal mace", "quantity": 1},
             {"id": "shortbow", "name": "Shortbow", "quantity": 1},
             {"id": "crude-arrows", "name": "Crude arrows", "quantity": 17, "unit": "arrows"},
             {"id": "flint-dagger", "name": "Flint dagger", "quantity": 1},
             {"id": "damaged-holy-symbol", "name": "Holy symbol of Tymora", "quantity": 1, "condition": "damaged"},
-            {"id": "damaged-healers-satchel", "name": "Healer's satchel", "quantity": 1, "condition": "damaged"}
+            {"id": "damaged-healers-satchel", "name": "Healer's satchel", "quantity": 1, "condition": "damaged"},
+            {"id": "sassafras-fitted-steel-breastplate", "name": "Master-grade fitted steel breastplate", "quantity": 1, "notes": "Mundane medium armor custom-fitted for Sassafras Silverleaf; AC 14 + DEX modifier (maximum +2); no Stealth disadvantage; owned and equipped by Sassafras."},
+            {"id": "personal-shield", "name": "Personal shield", "quantity": 1, "notes": "Mundane shield; +2 AC while equipped."}
           ]
         },
         "equipment_state": {
           "slots": {
-            "armor": {"item_id": "worn-armor-shield-configuration"}
+            "armor": {"item_id": "sassafras-fitted-steel-breastplate"},
+            "off_hand": {"item_id": "personal-shield"}
           }
         },
         "attunement_limit": 3,

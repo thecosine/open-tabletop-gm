@@ -238,21 +238,25 @@ class InventoryProjectionTests(unittest.TestCase):
         self.assertEqual(by_id["greenwood-stag-meat"]["container_id"], "dimensional-pouch")
         self.assertNotIn("container_id", by_id["training-arrows"])
 
-    def test_sassafras_has_explicit_records_damage_and_unspecified_armor(self):
+    def test_sassafras_fallback_has_transferred_and_equipped_breastplate(self):
         projected = self._project("Sassafras Silverleaf")
         groups = projected["groups"]
-        self.assertEqual(len(groups["carried"]), 7)
+        self.assertEqual(len(groups["carried"]), 8)
         by_id = {item["id"]: item for item in groups["carried"]}
         self.assertEqual(by_id["crude-arrows"]["quantity"], 17)
         self.assertEqual(by_id["damaged-holy-symbol"]["condition"], "damaged")
         self.assertEqual(by_id["damaged-healers-satchel"]["condition"], "damaged")
-        armor = by_id["worn-armor-shield-configuration"]
-        self.assertEqual(armor["name"], "Worn armor and shield configuration")
-        self.assertEqual(armor["notes"], "AC 16; armor type remains unspecified")
+        armor = by_id["sassafras-fitted-steel-breastplate"]
+        self.assertEqual(armor["name"], "Master-grade fitted steel breastplate")
+        self.assertIn("owned and equipped by Sassafras", armor["notes"])
+        self.assertNotIn("not yet transferred or equipped", armor["notes"])
         self.assertNotIn("type", armor)
         self.assertEqual(
             projected["equipment_state"]["slots"],
-            {"armor": {"item_id": "worn-armor-shield-configuration"}},
+            {
+                "armor": {"item_id": "sassafras-fitted-steel-breastplate"},
+                "off_hand": {"item_id": "personal-shield"},
+            },
         )
         self.assertNotIn("containers", groups)
         self.assertNotIn("currency", groups)

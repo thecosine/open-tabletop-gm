@@ -40,7 +40,7 @@ class CanonicalProjectionTests(unittest.TestCase):
         self.assertEqual(
             projected["true_identity"],
             {
-                "class": "Bladedancer / Chronurgy Wizard / College of Swords Bard",
+                "class": "Bladedancer / Chronurgy Wizard / Lady of Fortune Warlock",
                 "gestalt": True,
             },
         )
@@ -54,28 +54,22 @@ class CanonicalProjectionTests(unittest.TestCase):
         self.assertEqual(
             projected["skills"]["entries"],
             [
-                {"name": "Perception", "rank": "expertise"},
-                {"name": "Investigation", "rank": "expertise"},
-                {"name": "Arcana", "rank": "expertise"},
+                {"name": name, "rank": "expertise"}
+                for name in (
+                    "Perception", "Investigation", "Arcana", "Sleight of Hand", "Athletics",
+                    "Stealth", "Insight", "Survival", "History",
+                )
             ],
         )
         self.assertEqual(
             projected["proficiencies"]["tools"],
-            [
-                {"name": "All tools", "rank": "proficient"},
-                {"name": "Thieves' Tools", "rank": "expertise"},
-                {"name": "Smith's Tools", "rank": "expertise"},
-                {"name": "Tinker's Tools", "rank": "expertise"},
-            ],
+            [{"name": "All tools", "rank": "proficient"}],
         )
-        self.assertEqual(projected["resources"], [{
-            "name": "Bardic Inspiration", "max": 5, "die": "d6", "recharge": "Long Rest",
-        }])
-        self.assertNotIn("current", projected["resources"][0])
+        self.assertNotIn("resources", projected)
         self.assertEqual(projected["saving_throws"], [
             {
                 "ability": "dex", "bonus": 10, "proficient": True,
-                "sources": ["Bladedancer", "College of Swords Bard"],
+                "sources": ["Bladedancer"],
             },
             {
                 "ability": "int", "bonus": 7, "proficient": True,
@@ -83,11 +77,11 @@ class CanonicalProjectionTests(unittest.TestCase):
             },
             {
                 "ability": "wis", "bonus": 6, "proficient": True,
-                "sources": ["Chronurgy Wizard"],
+                "sources": ["Chronurgy Wizard", "Lady of Fortune Warlock"],
             },
             {
                 "ability": "cha", "bonus": 7, "proficient": True,
-                "sources": ["College of Swords Bard"],
+                "sources": ["Lady of Fortune Warlock"],
             },
         ])
         for absent in ("defenses", "senses"):
@@ -98,6 +92,9 @@ class CanonicalProjectionTests(unittest.TestCase):
 
     def test_sassafras_preserves_rank_and_unranked_bonuses(self):
         projected = self.overview.project_player_overview(CAMPAIGN, "Sassafras Silverleaf")
+        self.assertEqual(projected["true_identity"], {
+            "class": "Cleric 4 (Hand of Fate Domain)", "gestalt": False,
+        })
         self.assertEqual(projected["proficiency_bonus"], 2)
         self.assertEqual(projected["passive_perception"], 16)
         self.assertEqual(projected["saving_throws"], [
@@ -122,24 +119,23 @@ class CanonicalProjectionTests(unittest.TestCase):
 
     def test_mythlon_spell_sources_remain_separate_without_invented_known_status(self):
         projected = self.overview.project_player_overview(CAMPAIGN, "Mythlon Bladesinger")
-        bard, wizard = projected["spellcasting"]["sources"]
-        self.assertEqual([bard["name"], wizard["name"]], ["Bard", "Wizard"])
-        self.assertEqual((bard["save_dc"], bard["attack_bonus"]), (15, 7))
+        warlock, wizard = projected["spellcasting"]["sources"]
+        self.assertEqual([warlock["name"], wizard["name"]], ["Warlock", "Wizard"])
+        self.assertEqual((warlock["save_dc"], warlock["attack_bonus"]), (15, 7))
         self.assertEqual((wizard["save_dc"], wizard["attack_bonus"]), (15, 7))
         self.assertEqual(
-            [spell["name"] for spell in bard["spells"][:2]],
-            ["Vicious Mockery", "Booming Blade"],
+            [spell["name"] for spell in warlock["spells"][:3]],
+            ["Eldritch Blast", "Mind Sliver", "Booming Blade"],
         )
         self.assertTrue(all(
-            spell["category"] == "cantrip" for spell in bard["spells"][:2]
+            spell["category"] == "cantrip" for spell in warlock["spells"][:3]
         ))
-        self.assertNotIn("category", bard["spells"][2])
-        self.assertEqual(
-            [spell["name"] for spell in wizard["spells"] if spell.get("category") == "prepared"],
-            ["Shield", "Misty Step", "Web"],
-        )
         self.assertTrue(all(
-            spell.get("category") == "spellbook" for spell in wizard["spells"][6:]
+            spell.get("category") == "prepared" for spell in warlock["spells"][3:]
+        ))
+        self.assertFalse(any(spell.get("category") == "prepared" for spell in wizard["spells"]))
+        self.assertTrue(all(
+            spell.get("category") in {"cantrip", "spellbook"} for spell in wizard["spells"]
         ))
 
     def test_wizard_spellbook_does_not_imply_prepared_state(self):
@@ -161,14 +157,11 @@ class CanonicalProjectionTests(unittest.TestCase):
         ])
         self.assertFalse(any(spell.get("category") == "prepared" for spell in wizard["spells"]))
 
-    def test_wizard_spell_can_retain_prepared_and_spellbook_membership(self):
+    def test_current_wizard_spellbook_does_not_invent_prepared_membership(self):
         projected = self.overview.project_player_overview(CAMPAIGN, "Mythlon Bladesinger")
         wizard = projected["spellcasting"]["sources"][1]
         shield_records = [spell for spell in wizard["spells"] if spell["name"] == "Shield"]
-        self.assertEqual(shield_records, [
-            {"name": "Shield", "category": "prepared"},
-            {"name": "Shield", "category": "spellbook"},
-        ])
+        self.assertEqual(shield_records, [{"name": "Shield", "category": "spellbook"}])
         self.assertTrue(all(set(spell) == {"name", "category"} for spell in shield_records))
 
     def test_sassafras_projects_explicit_prepared_levels_and_domain_source(self):
@@ -179,7 +172,7 @@ class CanonicalProjectionTests(unittest.TestCase):
             {"name": "Cleric", "ability": "WIS", "save_dc": 14, "attack_bonus": 6},
         )
         prepared = [spell for spell in cleric["spells"] if spell.get("category") == "prepared"]
-        self.assertEqual([spell["level"] for spell in prepared], [1, 1, 1, 2, 2, 2])
+        self.assertEqual([spell["level"] for spell in prepared], [1, 1, 1, 2, 2, 2, 2])
         self.assertEqual(domain["name"], "Hand of Fate Domain")
         self.assertEqual(
             [spell["name"] for spell in domain["spells"] if spell.get("category") == "always_prepared"],
@@ -340,11 +333,11 @@ class LifecycleProjectionTests(unittest.TestCase):
         self.assertEqual(display["players"][0]["arbitrary"], "preserved")
         self.assertEqual(
             display["players"][0]["overview"]["true_identity"]["class"],
-            "Bladedancer / Chronurgy Wizard / College of Swords Bard",
+            "Bladedancer / Chronurgy Wizard / Lady of Fortune Warlock",
         )
         self.assertEqual(
             [source["name"] for source in display["players"][0]["overview"]["spellcasting"]["sources"]],
-            ["Bard", "Wizard"],
+            ["Warlock", "Wizard"],
         )
 
     def test_replacement_player_snapshot_broadcasts_projection_without_persisting_it(self):
@@ -354,7 +347,8 @@ class LifecycleProjectionTests(unittest.TestCase):
         client = self.app_module.app.test_client()
         incoming = {
             "name": "Sassafras Silverleaf", "side": "companion",
-            "hp": {"current": 9, "max": 24}, "ac": 16,
+            "hp": {"current": 31, "max": 31}, "ac": 18,
+            "class": "Cleric 4", "level": 4,
         }
         with mock.patch.object(self.app_module, "_active_campaign", return_value="mythlon-chronicles"), \
              mock.patch.object(self.app_module, "_find_campaign", return_value=CAMPAIGN), \
@@ -370,6 +364,8 @@ class LifecycleProjectionTests(unittest.TestCase):
         self.assertNotIn("overview", self.app_module._current_stats["players"][0])
         browser_player = sent[-1]["stats"]["players"][0]
         self.assertEqual(browser_player["hp"], incoming["hp"])
+        self.assertEqual((browser_player["class"], browser_player["level"]), ("Cleric 4", 4))
+        self.assertEqual(browser_player["overview"]["true_identity"]["class"], "Cleric 4 (Hand of Fate Domain)")
         self.assertEqual(browser_player["overview"]["passive_perception"], 16)
 
 
@@ -380,11 +376,27 @@ class PortableGestaltSavingThrowTests(unittest.TestCase):
         cls.profile = json.loads(PROFILE_PATH.read_text(encoding="utf-8"))["profiles"][0]
         cls.sheet = (CAMPAIGN / "characters" / "Mythlon-Bladesinger.md").read_text(encoding="utf-8")
 
+    def test_profile_has_one_current_mythlon_build(self):
+        profiles = [
+            profile
+            for profile in json.loads(PROFILE_PATH.read_text(encoding="utf-8"))["profiles"]
+            if profile["campaign"] == "mythlon-chronicles"
+            and profile["character"] == "Mythlon Bladesinger"
+        ]
+        self.assertEqual(len(profiles), 1)
+        self.assertEqual(
+            [pillar["class"] for pillar in profiles[0]["saving_throw_pillars"]],
+            ["Rogue", "Wizard", "Warlock"],
+        )
+        self.assertNotIn("Bard", json.dumps(profiles[0]))
+
     def test_union_deduplicates_pillar_saves_and_sources(self):
         saves = self.overview.compute_configured_saving_throws(self.sheet, self.profile)
         self.assertEqual([save["ability"] for save in saves], ["dex", "int", "wis", "cha"])
-        self.assertEqual(saves[0]["sources"], ["Bladedancer", "College of Swords Bard"])
+        self.assertEqual(saves[0]["sources"], ["Bladedancer"])
         self.assertEqual(saves[1]["sources"], ["Bladedancer", "Chronurgy Wizard"])
+        self.assertEqual(saves[2]["sources"], ["Chronurgy Wizard", "Lady of Fortune Warlock"])
+        self.assertEqual(saves[3]["sources"], ["Lady of Fortune Warlock"])
         self.assertEqual(len({save["ability"] for save in saves}), len(saves))
 
     def test_duplicate_proficiency_is_applied_once(self):
@@ -416,8 +428,8 @@ class PortableGestaltSavingThrowTests(unittest.TestCase):
 
     def test_configured_union_preserves_additional_explicit_save(self):
         sheet = self.sheet.replace(
-            "- **Hit Dice:** 3d8/3d8 | **Proficiency Bonus:** +2",
-            "- **Hit Dice:** 3d8/3d8 | **Proficiency Bonus:** +2\n- **Saving Throws:** STR +6",
+            "- **Hit Dice:** 4d8/4d8 | **Proficiency Bonus:** +2",
+            "- **Hit Dice:** 4d8/4d8 | **Proficiency Bonus:** +2\n- **Saving Throws:** STR +6",
         )
         explicit = self.overview.project_overview_text(sheet)["saving_throws"]
         configured = self.overview.compute_configured_saving_throws(sheet, self.profile)
