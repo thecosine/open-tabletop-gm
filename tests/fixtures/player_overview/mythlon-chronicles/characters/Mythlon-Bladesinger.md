@@ -2,32 +2,30 @@
 
 ## Identity
 - **Species:** Moon Elf
-- **Class:** Gestalt Rogue 3 (Bladedancer) / Bard 3 (College of Swords) / Wizard 3 (Chronurgy Magic)
+- **Class:** Gestalt Rogue 4 (Bladedancer) / Warlock 4 (Lady of Fortune) / Wizard 4 (Chronurgy Magic)
 
 ## Ability Scores
 | STR | DEX | CON | INT | WIS | CHA |
 |---|---|---|---|---|---|
-| 18 (+4) | 26 (+8) | 18 (+4) | 20 (+5) | 18 (+4) | 20 (+5) |
+| 19 (+4) | 26 (+8) | 18 (+4) | 21 (+5) | 18 (+4) | 20 (+5) |
 
 ## Combat Stats
-- **HP:** 30/30 | **AC:** 21 | **Initiative:** +13 | **Speed:** 30 ft.
-- **Hit Dice:** 3d8/3d8 | **Proficiency Bonus:** +2
+- **HP:** 42/42 | **AC:** 21 | **Initiative:** +13 | **Speed:** 30 ft.
+- **Hit Dice:** 4d8/4d8 | **Proficiency Bonus:** +2
 - **Passive Perception:** 16 | **Investigation:** 17 | **Insight:** 14
 
 ## Proficiencies
 - All skills, tools, and life skills
-- Expertise: Perception, Investigation, Arcana
-- Tool Expertise: Thieves' Tools, Smith's Tools, Tinker's Tools
+- Expertise: Perception, Investigation, Arcana, Sleight of Hand, Athletics, Stealth, Insight, Survival, History
 
 ## Features
-- Bard: Bardic Inspiration d6, 5 uses per Long Rest
+- Warlock: Pact Magic, Magical Cunning, Fortune's Favorite, Fortune Favors the Bold
 - Divine disguise: magical inspection registers Mythlon as a base-level Arcane Trickster
 
 ## Spellcasting
-- **Bard:** DC 15, attack +7, level-1 slots 4/4, level-2 slots 2/2
-- **Wizard:** DC 15, attack +7, level-1 slots 4/4, level-2 slots 2/2
-- **Bard cantrips:** Vicious Mockery, Booming Blade
-- **Bard spells:** Faerie Fire, Dissonant Whispers, Healing Word, Longstrider, Warding Wind
-- **Wizard cantrips:** Mage Hand, Prestidigitation, Minor Illusion
-- **Wizard prepared spells:** Shield, Misty Step, Web
+- **Warlock:** DC 15, attack +7, Pact slots 2/2 at level 2 (class source: Warlock)
+- **Wizard:** DC 15, attack +7, level-1 slots 4/4, level-2 slots 3/3
+- **Warlock cantrips:** Eldritch Blast, Mind Sliver, Booming Blade
+- **Warlock prepared spells:** Armor of Agathys, Hex, Hellish Rebuke, Hold Person, Immovable Object
+- **Wizard cantrips:** Mage Hand, Prestidigitation, Minor Illusion, Blade Ward
 - **Spellbook:** Find Familiar, Grease, Shield, Silvery Barbs, Gift of Alacrity, Absorb Elements, Invisibility, Misty Step, Shadow Blade, Vortex Warp, Web
