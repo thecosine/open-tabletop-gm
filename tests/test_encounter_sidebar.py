@@ -98,6 +98,81 @@ class EncounterStatsTests(unittest.TestCase):
         response = self._post({"encounter_actors": {"name": "Goblin"}})
         self.assertEqual(response.status_code, 400)
 
+    def test_partial_current_preserves_order_and_round(self):
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Goblin", "Sassafras"],
+            "current": "Goblin",
+            "round": 3,
+        }
+        response = self._post({"turn_order": {"current": "Sassafras"}})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.mod._current_stats["turn_order"], {
+            "order": ["Mythlon", "Goblin", "Sassafras"],
+            "current": "Sassafras",
+            "round": 3,
+        })
+
+    def test_partial_round_preserves_order_and_current(self):
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Goblin", "Sassafras"],
+            "current": "Sassafras",
+            "round": 3,
+        }
+        response = self._post({"turn_order": {"round": 4}})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.mod._current_stats["turn_order"], {
+            "order": ["Mythlon", "Goblin", "Sassafras"],
+            "current": "Sassafras",
+            "round": 4,
+        })
+
+    def test_full_order_replaces_prior_order(self):
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Goblin"], "current": "Goblin", "round": 3,
+        }
+        replacement = {"order": ["Ogre", "Mythlon"], "current": "Ogre", "round": 1}
+        response = self._post({"turn_order": replacement})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.mod._current_stats["turn_order"], replacement)
+
+    def test_none_clears_turn_order(self):
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Goblin"], "current": "Goblin", "round": 3,
+        }
+        response = self._post({"turn_order": None})
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(self.mod._current_stats["turn_order"])
+
+    def test_non_object_turn_order_is_rejected(self):
+        response = self._post({"turn_order": ["Mythlon", "Goblin"]})
+        self.assertEqual(response.status_code, 400)
+
+    def test_current_only_update_ticks_round_effects_once(self):
+        self.mod._current_stats["players"][1]["effects"] = [{
+            "name": "Bless", "duration_type": "rounds", "duration_remaining": 2,
+        }]
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Elara"], "current": "Mythlon", "round": 2,
+        }
+        response = self._post({"turn_order": {"current": "Elara"}})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.mod._current_stats["players"][1]["effects"][0]["duration_remaining"], 1,
+        )
+
+    def test_round_only_update_does_not_tick_merged_current_actor(self):
+        self.mod._current_stats["players"][1]["effects"] = [{
+            "name": "Bless", "duration_type": "rounds", "duration_remaining": 2,
+        }]
+        self.mod._current_stats["turn_order"] = {
+            "order": ["Mythlon", "Elara"], "current": "Elara", "round": 2,
+        }
+        response = self._post({"turn_order": {"round": 3}})
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            self.mod._current_stats["players"][1]["effects"][0]["duration_remaining"], 2,
+        )
+
 
 class EncounterFrontendContractTests(unittest.TestCase):
     @classmethod

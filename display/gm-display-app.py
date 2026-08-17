@@ -2690,7 +2690,7 @@ def refresh_inventory():
 
 @app.route("/stats", methods=["POST"])
 def stats():
-    """Receive character/combat updates. Merges players; replaces encounter actors and turn order.
+    """Receive character/combat updates. Merges players and partial turn-order updates.
 
     Pass replace_players=true to replace the entire player list (use on /dnd load to
     prevent stale characters from a previous campaign persisting in the sidebar).
@@ -2708,6 +2708,16 @@ def stats():
         except ValueError as exc:
             return str(exc), 400
         data = dict(data, players=normalized_players)
+    if "turn_order" in data:
+        turn_order = data["turn_order"]
+        if turn_order is not None and not isinstance(turn_order, dict):
+            return "turn_order must be an object or null", 400
+        if isinstance(turn_order, dict):
+            if "order" in turn_order and not isinstance(turn_order["order"], list):
+                return "turn_order.order must be a list", 400
+            if "current" in turn_order and turn_order["current"] is not None \
+                    and not isinstance(turn_order["current"], str):
+                return "turn_order.current must be a string or null", 400
 
     quest_snapshot = None
     if "quests" in data:
@@ -2886,13 +2896,23 @@ def stats():
                 if (normalized := _normalize_encounter_actor(actor)) is not None
             ]
 
-        # turn_order replaces entirely (None = clear); also ticks round-based effects
+        # A supplied order defines the complete snapshot. Current/round-only
+        # updates merge into it so reconnects retain the full initiative state.
         _effect_expire_events: list[dict] = []
         if "turn_order" in data:
             new_to = data["turn_order"]
-            _current_stats["turn_order"] = new_to
+            if new_to is None:
+                _current_stats["turn_order"] = None
+            elif "order" in new_to:
+                _current_stats["turn_order"] = dict(new_to)
+            else:
+                existing_to = _current_stats.get("turn_order")
+                merged_to = dict(existing_to) if isinstance(existing_to, dict) else {}
+                merged_to.update(new_to)
+                _current_stats["turn_order"] = merged_to
             # Decrement round-based effects for the actor whose turn just started
-            if new_to and isinstance(new_to, dict) and new_to.get("current"):
+            # based on the incoming update, not a current actor retained by merge.
+            if new_to and new_to.get("current"):
                 actor = new_to["current"].lower()
                 for p in _current_stats.get("players", []):
                     if p.get("name", "").lower() != actor:

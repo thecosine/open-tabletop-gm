@@ -624,14 +624,25 @@
     letter-spacing: 2.5px;
     text-transform: uppercase;
   }
+  .encounter-heading-meta {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  #encounter-round {
+    color: #ffd166;
+    font-size: 10px;
+    letter-spacing: 1.3px;
+  }
   #encounter-count {
     color: #f2f5f7;
     font-size: 11px;
     letter-spacing: 1px;
   }
   .encounter-card {
-    margin-bottom: 12px;
-    padding: 12px;
+    position: relative;
+    margin-bottom: 10px;
+    padding: 11px;
     background: #11161d;
     border: 1px solid #d94fbb;
     border-left-width: 5px;
@@ -645,6 +656,89 @@
   }
   .encounter-card.neutral { border-color: #ffd166; }
   .encounter-card.resolved { opacity: 0.72; border-color: #7a8a99; }
+  .encounter-card.encounter-next-round:not(.resolved) {
+    border-left-color: #7a8a99;
+    box-shadow: 0 4px 13px rgba(0,0,0,0.38);
+  }
+  .encounter-next-round-label {
+    margin: -2px 0 7px;
+    color: #9ba8b4;
+    font-family: 'Cinzel', serif;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-align: right;
+    text-transform: uppercase;
+  }
+  .encounter-player-marker,
+  .encounter-generic-marker {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+    margin: 6px 0 9px;
+    color: #d9bd73;
+    font-family: 'Cinzel', serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .encounter-player-marker::before,
+  .encounter-player-marker::after {
+    height: 1px;
+    min-width: 12px;
+    flex: 1;
+    content: '';
+    background: rgba(217,189,115,0.48);
+  }
+  .encounter-player-name,
+  .encounter-generic-name { min-width: 0; overflow-wrap: anywhere; }
+  .encounter-current-symbol {
+    flex: 0 0 auto;
+    color: #ffd166;
+    font-size: 11px;
+  }
+  .encounter-player-marker.active-turn {
+    color: #ffd166;
+    text-shadow: 0 0 8px rgba(255,209,102,0.4);
+  }
+  .encounter-player-marker.active-turn::before,
+  .encounter-player-marker.active-turn::after { height: 2px; background: #ffd166; }
+  .encounter-player-marker.encounter-next-round,
+  .encounter-generic-marker.encounter-next-round { color: #a8a39a; }
+  .encounter-player-marker.encounter-next-round::before,
+  .encounter-player-marker.encounter-next-round::after { background: rgba(168,163,154,0.42); }
+  .encounter-marker-round {
+    flex: 0 0 100%;
+    color: #8f9aa5;
+    font-size: 7px;
+    letter-spacing: 1px;
+    text-align: right;
+  }
+  .encounter-player-marker.encounter-next-round { flex-wrap: wrap; }
+  .encounter-player-marker.encounter-next-round::before,
+  .encounter-player-marker.encounter-next-round::after { flex-basis: 12px; }
+  .encounter-generic-marker {
+    padding: 5px 7px;
+    color: #c8d1da;
+    background: rgba(39,49,59,0.42);
+    border-left: 2px solid #7a8a99;
+  }
+  .encounter-generic-marker.active-turn { color: #ffd166; border-left-color: #ffd166; }
+  .encounter-generic-label,
+  .encounter-unordered-label {
+    color: #8996a2;
+    font-size: 8px;
+    letter-spacing: 1.1px;
+  }
+  .encounter-generic-marker .encounter-marker-round { margin-left: auto; }
+  .encounter-unordered-label {
+    margin: 13px 0 7px;
+    font-family: 'Cinzel', serif;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
   .encounter-card-header {
     display: flex;
     align-items: flex-start;
@@ -4736,10 +4830,10 @@
   </div>
 </div>
 
-<!-- Encounter sidebar — explicit encounter_actors only, never players[] -->
+<!-- Encounter sidebar — encounter cards plus lightweight display/session initiative markers -->
 <button id="encounter-toggle" type="button" aria-controls="encounter-panel" aria-expanded="false">Encounter</button>
 <aside id="encounter-panel" aria-label="Active encounter">
-  <div class="encounter-heading">Encounter <span id="encounter-count">0 active</span></div>
+  <div class="encounter-heading">Encounter <span class="encounter-heading-meta"><span id="encounter-round" hidden></span><span id="encounter-count">0 active</span></span></div>
   <div id="encounter-active"></div>
   <details id="encounter-resolved" style="display:none">
     <summary>Resolved</summary>
@@ -6275,27 +6369,33 @@ function renderReplayBatch(items) {
   scrollToBottom();
 }
 
+let _clearDisplayTimer = null;
+
+function _clearDisplayImmediately() {
+  clearTimeout(_clearDisplayTimer);
+  _clearDisplayTimer = null;
+  charQueue        = [];
+  isTyping         = false;
+  _currentInlineEl = null;
+  if (currentCursor && currentCursor.parentNode) {
+    currentCursor.parentNode.removeChild(currentCursor);
+  }
+  currentCursor = null;
+  currentEl     = null;
+  clearTimeout(idleTimer);
+  textContent.replaceChildren();
+  textScroll.scrollTop = 0;
+  userScrolledUp = false;
+  textContent.style.opacity = '1';
+  _hideProcessingIndicator();
+}
+
 function clearDisplay(then) {
   // Fade out, wipe, fade back in, then call the callback.
+  clearTimeout(_clearDisplayTimer);
   textContent.style.opacity = '0';
-  setTimeout(() => {
-    // Abort any in-progress typewriter
-    charQueue        = [];
-    isTyping         = false;
-    _currentInlineEl = null;
-    if (currentCursor && currentCursor.parentNode) {
-      currentCursor.parentNode.removeChild(currentCursor);
-    }
-    currentCursor = null;
-    currentEl     = null;
-    clearTimeout(idleTimer);
-
-    textContent.innerHTML = '';
-    textScroll.scrollTop  = 0;
-    userScrolledUp = false;
-    textContent.style.opacity = '1';
-    _hideProcessingIndicator();
-
+  _clearDisplayTimer = setTimeout(() => {
+    _clearDisplayImmediately();
     if (then) then();
   }, 370); // matches the CSS transition duration
 }
@@ -8513,14 +8613,92 @@ function _isPersistentSidebarActor(actor) {
   return _SIDEBAR_IDENTITY_KEYS.some(key => key in actor);
 }
 
+function _turnOrderEntryName(entry) {
+  const value = entry && typeof entry === 'object' ? entry.name : entry;
+  return String(value || '').trim();
+}
+
+function _rotateEncounterTurnOrder(order, current) {
+  const entries = Array.isArray(order)
+    ? order.map(entry => ({entry, name: _turnOrderEntryName(entry), nextRound: false})).filter(item => item.name)
+    : [];
+  const currentName = _turnOrderEntryName(current);
+  if (!currentName) return entries;
+  const currentIndex = entries.findIndex(item => _actorNamesMatch(item.name, currentName));
+  if (currentIndex <= 0) return entries;
+  return entries.slice(currentIndex).concat(
+    entries.slice(0, currentIndex).map(item => ({...item, nextRound: true}))
+  );
+}
+
+function _playerNameForTurnEntry(name) {
+  return Object.keys(_playerData).find(playerName => _actorNamesMatch(playerName, name)) || null;
+}
+
+function _encounterActorForTurnEntry(actors, name) {
+  return actors.find(actor => _actorNamesMatch(actor && actor.name, name)) || null;
+}
+
+function _buildEncounterPlayerMarker(name, current, nextRound = false) {
+  const marker = document.createElement('div');
+  const isCurrent = _actorNamesMatch(name, _turnOrderEntryName(current));
+  marker.className = `encounter-player-marker${isCurrent ? ' active-turn' : ''}${nextRound ? ' encounter-next-round' : ''}`;
+  marker.dataset.initiativeName = name;
+  if (isCurrent) {
+    const symbol = document.createElement('span');
+    symbol.className = 'encounter-current-symbol';
+    symbol.setAttribute('aria-hidden', 'true');
+    symbol.textContent = '▶';
+    marker.appendChild(symbol);
+  }
+  const actorName = document.createElement('span');
+  actorName.className = 'encounter-player-name';
+  actorName.textContent = name;
+  marker.appendChild(actorName);
+  if (nextRound) {
+    const round = document.createElement('span');
+    round.className = 'encounter-marker-round';
+    round.textContent = 'Next round';
+    marker.appendChild(round);
+  }
+  return marker;
+}
+
+function _buildEncounterGenericMarker(name, current, nextRound = false) {
+  const marker = document.createElement('div');
+  const isCurrent = _actorNamesMatch(name, _turnOrderEntryName(current));
+  marker.className = `encounter-generic-marker${isCurrent ? ' active-turn' : ''}${nextRound ? ' encounter-next-round' : ''}`;
+  marker.dataset.initiativeName = name;
+  const label = document.createElement('span');
+  label.className = 'encounter-generic-label';
+  label.textContent = isCurrent ? 'Current' : 'Initiative';
+  const actorName = document.createElement('span');
+  actorName.className = 'encounter-generic-name';
+  actorName.textContent = name;
+  marker.append(label, actorName);
+  if (nextRound) {
+    const round = document.createElement('span');
+    round.className = 'encounter-marker-round';
+    round.textContent = 'Next round';
+    marker.appendChild(round);
+  }
+  return marker;
+}
+
+function _markEncounterCardNextRound(card) {
+  card.classList.add('encounter-next-round');
+  card.dataset.nextRound = 'true';
+  const label = document.createElement('div');
+  label.className = 'encounter-next-round-label';
+  label.textContent = 'Next round';
+  card.prepend(label);
+  return card;
+}
+
 function _encounterInitiativePosition(actor, turnOrder) {
   if (actor.initiative_position != null) return actor.initiative_position;
   const order = turnOrder && Array.isArray(turnOrder.order) ? turnOrder.order : [];
-  const actorName = String(actor.name || '').toLowerCase();
-  const index = order.findIndex(entry => {
-    const name = typeof entry === 'object' && entry ? entry.name : entry;
-    return String(name || '').toLowerCase() === actorName;
-  });
+  const index = order.findIndex(entry => _actorNamesMatch(_turnOrderEntryName(entry), actor.name));
   return index >= 0 ? index + 1 : null;
 }
 
@@ -8637,25 +8815,63 @@ function _setEncounterDrawerOpen(open) {
 }
 
 function _renderEncounterActors(actors, turnOrder) {
+  const panel = document.getElementById('encounter-panel');
+  const hadEncounter = panel.classList.contains('has-data');
   _encounterActors = Array.isArray(actors) ? actors.slice() : [];
   const active = _encounterActors.filter(actor => _ENCOUNTER_ACTIVE_STATES.has(String(actor.state || 'active').toLowerCase()));
   const resolved = _encounterActors.filter(actor => !_ENCOUNTER_ACTIVE_STATES.has(String(actor.state || 'active').toLowerCase()));
-  const panel = document.getElementById('encounter-panel');
+  const timeline = _rotateEncounterTurnOrder(turnOrder && turnOrder.order, turnOrder && turnOrder.current);
   const activeList = document.getElementById('encounter-active');
   const resolvedSection = document.getElementById('encounter-resolved');
   const resolvedList = document.getElementById('encounter-resolved-list');
   const toggle = document.getElementById('encounter-toggle');
+  const roundLabel = document.getElementById('encounter-round');
 
-  activeList.replaceChildren(...active.map(actor => _buildEncounterActorCard(actor, turnOrder)));
+  const activeNodes = [];
+  const orderedActors = new Set();
+  if (timeline.length) {
+    timeline.forEach(item => {
+      const playerName = _playerNameForTurnEntry(item.name);
+      if (playerName) {
+        activeNodes.push(_buildEncounterPlayerMarker(playerName, turnOrder && turnOrder.current, item.nextRound));
+        return;
+      }
+      const actor = _encounterActorForTurnEntry(_encounterActors, item.name);
+      if (actor) {
+        if (!active.includes(actor) || orderedActors.has(actor)) return;
+        orderedActors.add(actor);
+        const card = _buildEncounterActorCard(actor, turnOrder);
+        activeNodes.push(item.nextRound ? _markEncounterCardNextRound(card) : card);
+        return;
+      }
+      activeNodes.push(_buildEncounterGenericMarker(item.name, turnOrder && turnOrder.current, item.nextRound));
+    });
+
+    const unordered = active.filter(actor => !orderedActors.has(actor));
+    if (unordered.length) {
+      const label = document.createElement('div');
+      label.className = 'encounter-unordered-label';
+      label.textContent = 'Unordered';
+      activeNodes.push(label, ...unordered.map(actor => _buildEncounterActorCard(actor, turnOrder)));
+    }
+  } else {
+    activeNodes.push(...active.map(actor => _buildEncounterActorCard(actor, turnOrder)));
+  }
+
+  activeList.replaceChildren(...activeNodes);
   resolvedList.replaceChildren(...resolved.map(actor => _buildEncounterActorCard(actor, turnOrder, true)));
   resolvedSection.style.display = resolved.length ? '' : 'none';
   document.getElementById('encounter-count').textContent = `${active.length} active`;
+  const hasRound = turnOrder && turnOrder.round != null;
+  roundLabel.hidden = !hasRound;
+  roundLabel.textContent = hasRound ? `Round ${turnOrder.round}` : '';
 
-  const hasEncounter = _encounterActors.length > 0;
+  const hasEncounter = _encounterActors.length > 0 || timeline.length > 0;
   panel.classList.toggle('has-data', hasEncounter);
   toggle.classList.toggle('has-data', hasEncounter);
   document.body.classList.toggle('encounter-active', hasEncounter);
   if (!hasEncounter) _setEncounterDrawerOpen(false);
+  else if (!hadEncounter) _setEncounterDrawerOpen(true);
 }
 
 function _actorNamesMatch(left, right) {
@@ -8663,7 +8879,7 @@ function _actorNamesMatch(left, right) {
 }
 
 function _syncActiveTurnHighlights(turnOrder) {
-  const current = turnOrder && turnOrder.current;
+  const current = _turnOrderEntryName(turnOrder && turnOrder.current);
   document.querySelectorAll('.sb-player[data-player-name]').forEach(card => {
     card.classList.toggle('active-turn', _actorNamesMatch(card.dataset.playerName, current));
   });
@@ -8827,7 +9043,7 @@ function updateStats(stats) {
         const name = entry.name;
         if (!name || entry.active === false || entry.defeated === true) return;
         const el = document.createElement('div');
-        el.className = 'sb-turn-item sb-turn-has-icon' + (_actorNamesMatch(name, merged.current) ? ' sb-turn-current' : '');
+        el.className = 'sb-turn-item sb-turn-has-icon' + (_actorNamesMatch(name, _turnOrderEntryName(merged.current)) ? ' sb-turn-current' : '');
         const isFriendly = (name in _playerData) || _isPersistentSidebarActor(entry);
         const symbol = document.createElement('span');
         symbol.className = 'sb-turn-symbol';
@@ -8979,10 +9195,11 @@ async function _combatFetch(path, options = {}, retry = true) {
   return response;
 }
 
-function _resetCombatProjection() {
+function _resetCombatProjection(clearDisplayState = _combatProjectionOwnsEncounter) {
   _combatProjectionId = '';
   _combatProjectionRevision = -1;
-  updateStats({turn_order: null, encounter_actors: []});
+  _combatProjectionOwnsEncounter = false;
+  if (clearDisplayState) updateStats({turn_order: null, encounter_actors: []});
 }
 
 function _beginCombatCampaign(campaign, force = false) {
@@ -8995,7 +9212,7 @@ function _beginCombatCampaign(campaign, force = false) {
   _combatClaimGeneration = -1;
   _combatBootstrap = null;
   _combatBootstrapFailureGeneration = -1;
-  _resetCombatProjection();
+  _resetCombatProjection(true);
   return _combatGeneration;
 }
 
@@ -10219,6 +10436,7 @@ const _sp = new URLSearchParams(location.search);
 const _streamChar = (_sp.get('char') || _sp.get('character') || '').trim();
 let _combatProjectionRevision = -1;
 let _combatProjectionId = '';
+let _combatProjectionOwnsEncounter = false;
 
 function _renderCombatProjection(receipt) {
   if (receipt && receipt.client_generation !== undefined && receipt.client_generation !== _combatGeneration) return;
@@ -10252,10 +10470,12 @@ function _renderCombatProjection(receipt) {
   if (Number.isInteger(projection.round)) turnUpdate.round = projection.round;
   if (Object.keys(turnUpdate).length) update.turn_order = turnUpdate;
   updateStats(update);
+  _combatProjectionOwnsEncounter = true;
 }
 
 function _clearCampaignClientState() {
   for (const key of Object.keys(_playerData)) delete _playerData[key];
+  for (const key of Object.keys(_prevHp)) delete _prevHp[key];
   _questCache = [];
   _questMeta = {};
   _peopleCache = [];
@@ -10269,10 +10489,12 @@ function _clearCampaignClientState() {
   closeDashboard();
   const turnSectionEl = document.getElementById('sb-turn-section');
   if (turnSectionEl) turnSectionEl.style.display = 'none';
+  document.getElementById('sb-turn-list')?.replaceChildren();
+  _currentTurnOrder = null;
   _sidebarBtn.classList.remove('visible');
   _setSidebarVisible(true);
   _renderEncounterActors([], null);
-  clearDisplay();
+  _clearDisplayImmediately();
 }
 
 window.addEventListener('open-tabletop-combat-projection', event => {
@@ -10293,15 +10515,20 @@ function connect() {
   evtSource.onmessage = (e) => {
     let payload;
     try { payload = JSON.parse(e.data); } catch { return; }
+    let campaignStateCleared = false;
     const incomingGeneration = Number(payload.campaign_generation);
     if (Number.isInteger(incomingGeneration)) {
       if (incomingGeneration < _displayGeneration) return;
       if (incomingGeneration > _displayGeneration) {
         _displayGeneration = incomingGeneration;
         _clearCampaignClientState();
+        campaignStateCleared = true;
       }
     }
-    if (payload.campaign_reset) _clearCampaignClientState();
+    if (payload.campaign_reset && !campaignStateCleared) {
+      _clearCampaignClientState();
+      campaignStateCleared = true;
+    }
 
     if (payload.dice_request && typeof window._onDiceRequest === 'function') {
       window._onDiceRequest(payload.dice_request);
@@ -10322,6 +10549,9 @@ function connect() {
     _acceptCombatCampaignPayload(payload);
 
     if (payload.stats) {
+      if (Object.prototype.hasOwnProperty.call(payload.stats, 'encounter_actors')) {
+        _combatProjectionOwnsEncounter = false;
+      }
       updateStats(payload.stats);
       const sidebarPlayers = (payload.stats.players || []).filter(_isPersistentSidebarActor);
       if (sidebarPlayers.length > 0) {
@@ -10380,8 +10610,9 @@ function connect() {
     if (payload.device_denied) {
       _onDeviceDenied(payload.device_denied);
     }
-    if (payload.clear) {
+    if (payload.clear && !campaignStateCleared) {
       _clearCampaignClientState();
+      campaignStateCleared = true;
     }
     if (payload.replay_batch) {
       renderReplayBatch(payload.replay_batch);
