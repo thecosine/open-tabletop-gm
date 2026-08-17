@@ -2646,6 +2646,42 @@ def _normalize_encounter_actor(actor: dict) -> dict | None:
     return public
 
 
+def _tick_round_effects_locked(actor_name: str) -> list[dict]:
+    """Tick one actor's display-owned round effects while _stats_lock is held."""
+    expire_events: list[dict] = []
+    actor = actor_name.strip().lower()
+    for player in _current_stats.get("players", []):
+        if player.get("name", "").strip().lower() != actor:
+            continue
+        kept, expired = [], []
+        for effect in player.get("effects", []):
+            if effect.get("duration_type") == "rounds":
+                effect = dict(effect)
+                effect["duration_remaining"] = max(
+                    0, effect.get("duration_remaining", 1) - 1,
+                )
+                (expired if effect["duration_remaining"] <= 0 else kept).append(effect)
+            else:
+                kept.append(effect)
+        player["effects"] = kept
+        for effect in expired:
+            was_concentration = effect.get("concentration", False)
+            if was_concentration and player.get("concentration", "").lower() == effect["name"].lower():
+                player["concentration"] = None
+            expire_events.append({
+                "owner": player["name"],
+                "name": effect["name"],
+                "was_concentration": was_concentration,
+            })
+        break
+    return expire_events
+
+
+def _turn_order_entry_name(entry) -> str:
+    value = entry.get("name") if isinstance(entry, dict) else entry
+    return value.strip() if isinstance(value, str) else ""
+
+
 @app.route("/quests/refresh", methods=["POST"])
 def refresh_quests():
     """Explicitly rebuild the active display quest cache from campaign state.md."""
@@ -2913,31 +2949,9 @@ def stats():
             # Decrement round-based effects for the actor whose turn just started
             # based on the incoming update, not a current actor retained by merge.
             if new_to and new_to.get("current"):
-                actor = new_to["current"].lower()
-                for p in _current_stats.get("players", []):
-                    if p.get("name", "").lower() != actor:
-                        continue
-                    kept, expired = [], []
-                    for eff in p.get("effects", []):
-                        if eff.get("duration_type") == "rounds":
-                            eff = dict(eff)  # don't mutate in-place
-                            eff["duration_remaining"] = max(0, eff.get("duration_remaining", 1) - 1)
-                            if eff["duration_remaining"] <= 0:
-                                expired.append(eff)
-                            else:
-                                kept.append(eff)
-                        else:
-                            kept.append(eff)
-                    p["effects"] = kept
-                    for eff in expired:
-                        was_conc = eff.get("concentration", False)
-                        if was_conc and p.get("concentration", "").lower() == eff["name"].lower():
-                            p["concentration"] = None
-                        _effect_expire_events.append({
-                            "owner": p["name"],
-                            "name": eff["name"],
-                            "was_concentration": was_conc,
-                        })
+                _effect_expire_events.extend(
+                    _tick_round_effects_locked(new_to["current"])
+                )
 
         # world_time replaces entirely
         if "world_time" in data:
@@ -3034,6 +3048,80 @@ def stats():
     _expected_count = max(1, len(players))
 
     return "", 204
+
+
+@app.route("/turn-order/navigate", methods=["POST"])
+def navigate_turn_order():
+    """Move the display/session turn pointer without touching combat authority."""
+    if not _token_ok():
+        return "Forbidden", 403
+    if not _rate_ok(request.remote_addr):
+        return "Too Many Requests", 429
+
+    device_status = _device_ok(
+        request.headers.get("X-DND-Device", ""), request.remote_addr,
+    )
+    if device_status == "denied":
+        return "Forbidden", 403
+    if device_status == "pending":
+        return jsonify({"status": "pending"}), 202
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"direction"}:
+        return "navigation requires only direction", 400
+    direction = data.get("direction")
+    if direction not in {"next", "previous"}:
+        return "direction must be next or previous", 400
+
+    expire_events: list[dict] = []
+    with _stats_lock:
+        turn_order = _current_stats.get("turn_order")
+        if not isinstance(turn_order, dict):
+            return "Turn order unavailable", 409
+        order = turn_order.get("order")
+        if not isinstance(order, list) or not order:
+            return "Turn order unavailable", 409
+        names = [_turn_order_entry_name(entry) for entry in order]
+        current_name = _turn_order_entry_name(turn_order.get("current"))
+        current_index = next((
+            index for index, name in enumerate(names)
+            if name and current_name and name.lower() == current_name.lower()
+        ), None)
+        if current_index is None:
+            return "Current actor is not in turn order", 409
+
+        step = 1 if direction == "next" else -1
+        target_index = (current_index + step) % len(names)
+        target_name = names[target_index]
+        if not target_name:
+            return "Target actor is invalid", 409
+
+        updated = dict(turn_order)
+        updated["current"] = target_name
+        wrapped = (
+            direction == "next" and current_index == len(names) - 1
+        ) or (
+            direction == "previous" and current_index == 0
+        )
+        round_number = updated.get("round")
+        if wrapped and isinstance(round_number, (int, float)) and not isinstance(round_number, bool):
+            updated["round"] = (
+                round_number + 1 if direction == "next"
+                else max(1, round_number - 1)
+            )
+        _current_stats["turn_order"] = updated
+
+        # Existing display semantics tick the actor whose turn starts. Reverse
+        # navigation is corrective UI and intentionally never consumes duration.
+        if direction == "next":
+            expire_events = _tick_round_effects_locked(target_name)
+        current = dict(_current_stats)
+
+    _persist_stats()
+    _broadcast({"stats": _stats_for_display(current)})
+    for event in expire_events:
+        _broadcast({"effect_expired": event})
+    return jsonify({"turn_order": updated}), 200
 
 
 @app.route("/effects/expire", methods=["POST"])

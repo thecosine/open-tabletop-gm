@@ -626,8 +626,34 @@
   }
   .encounter-heading-meta {
     display: inline-flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
+  }
+  .encounter-turn-controls {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .encounter-turn-control {
+    width: 23px;
+    height: 22px;
+    padding: 0;
+    color: #d9bd73;
+    background: rgba(39,49,59,0.55);
+    border: 1px solid rgba(217,189,115,0.48);
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 20px;
+    cursor: pointer;
+  }
+  .encounter-turn-control:hover:not(:disabled),
+  .encounter-turn-control:focus-visible {
+    color: #ffd166;
+    border-color: #ffd166;
+    outline: none;
+  }
+  .encounter-turn-control:disabled {
+    opacity: 0.3;
+    cursor: default;
   }
   #encounter-round {
     color: #ffd166;
@@ -4833,7 +4859,7 @@
 <!-- Encounter sidebar — encounter cards plus lightweight display/session initiative markers -->
 <button id="encounter-toggle" type="button" aria-controls="encounter-panel" aria-expanded="false">Encounter</button>
 <aside id="encounter-panel" aria-label="Active encounter">
-  <div class="encounter-heading">Encounter <span class="encounter-heading-meta"><span id="encounter-round" hidden></span><span id="encounter-count">0 active</span></span></div>
+  <div class="encounter-heading">Encounter <span class="encounter-heading-meta"><span id="encounter-round" hidden></span><span class="encounter-turn-controls" aria-label="Encounter turn controls"><button id="encounter-turn-previous" class="encounter-turn-control" type="button" aria-label="Previous encounter actor" title="Previous actor" disabled>◀</button><button id="encounter-turn-next" class="encounter-turn-control" type="button" aria-label="Next encounter actor" title="Next actor" disabled>▶</button></span><span id="encounter-count">0 active</span></span></div>
   <div id="encounter-active"></div>
   <details id="encounter-resolved" style="display:none">
     <summary>Resolved</summary>
@@ -8631,6 +8657,42 @@ function _rotateEncounterTurnOrder(order, current) {
   );
 }
 
+function _encounterTurnIndex(turnOrder) {
+  if (!turnOrder || !Array.isArray(turnOrder.order) || !turnOrder.order.length) return -1;
+  const currentName = _turnOrderEntryName(turnOrder.current);
+  if (!currentName) return -1;
+  return turnOrder.order.findIndex(entry =>
+    _actorNamesMatch(_turnOrderEntryName(entry), currentName)
+  );
+}
+
+let _encounterTurnPending = false;
+
+function _updateEncounterTurnControls(turnOrder) {
+  const disabled = _encounterTurnPending || _encounterTurnIndex(turnOrder) < 0;
+  document.getElementById('encounter-turn-previous').disabled = disabled;
+  document.getElementById('encounter-turn-next').disabled = disabled;
+}
+
+async function _navigateEncounterTurn(direction) {
+  if (_encounterTurnPending || _encounterTurnIndex(_currentTurnOrder) < 0) return;
+  _encounterTurnPending = true;
+  _updateEncounterTurnControls(_currentTurnOrder);
+  try {
+    const response = await fetch('/turn-order/navigate', {
+      method: 'POST',
+      headers: _authHeaders(),
+      body: JSON.stringify({direction}),
+    });
+    if (!response.ok) return;
+    const body = await response.json();
+    if (body.turn_order) updateStats({turn_order: body.turn_order});
+  } finally {
+    _encounterTurnPending = false;
+    _updateEncounterTurnControls(_currentTurnOrder);
+  }
+}
+
 function _playerNameForTurnEntry(name) {
   return Object.keys(_playerData).find(playerName => _actorNamesMatch(playerName, name)) || null;
 }
@@ -8865,6 +8927,7 @@ function _renderEncounterActors(actors, turnOrder) {
   const hasRound = turnOrder && turnOrder.round != null;
   roundLabel.hidden = !hasRound;
   roundLabel.textContent = hasRound ? `Round ${turnOrder.round}` : '';
+  _updateEncounterTurnControls(turnOrder);
 
   const hasEncounter = _encounterActors.length > 0 || timeline.length > 0;
   panel.classList.toggle('has-data', hasEncounter);
@@ -8893,6 +8956,12 @@ function _syncActiveTurnHighlights(turnOrder) {
 document.getElementById('encounter-toggle').addEventListener('click', () => {
   const panel = document.getElementById('encounter-panel');
   _setEncounterDrawerOpen(!panel.classList.contains('drawer-open'));
+});
+document.getElementById('encounter-turn-previous').addEventListener('click', () => {
+  _navigateEncounterTurn('previous');
+});
+document.getElementById('encounter-turn-next').addEventListener('click', () => {
+  _navigateEncounterTurn('next');
 });
 
 function updateStats(stats) {
