@@ -21,7 +21,7 @@ class DisplayCombatUxTests(unittest.TestCase):
         sync = SOURCE.split("function _syncActiveTurnHighlights(turnOrder)", 1)[1].split(
             "function updateStats(stats)", 1
         )[0]
-        self.assertIn("const current = turnOrder && turnOrder.current", sync)
+        self.assertIn("const current = _turnOrderEntryName(turnOrder && turnOrder.current)", sync)
         self.assertIn(".sb-player[data-player-name]", sync)
         self.assertIn("_actorNamesMatch(card.dataset.playerName, current)", sync)
         self.assertIn("String(left).trim().toLowerCase()", SOURCE)
