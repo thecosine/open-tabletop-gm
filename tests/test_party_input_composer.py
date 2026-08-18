@@ -1071,8 +1071,8 @@ class PlayerActionQuoteSemanticsTests(unittest.TestCase):
         completed = mock.Mock(returncode=0, stderr="")
         with mock.patch.object(self.autorun.subprocess, "run", return_value=completed) as run:
             self.assertTrue(self.autorun._echo_and_promote(captured))
-        self.assertEqual(run.call_args_list[0].kwargs["input"], 'Mythlon: Approach quietly.\n"Wait here."')
-        self.assertIn("--promote-digest", run.call_args_list[1].args[0])
+        self.assertIn("--promote-digest", run.call_args_list[0].args[0])
+        self.assertEqual(run.call_args_list[1].kwargs["input"], 'Mythlon: Approach quietly.\n"Wait here."')
 
 
 class DisplaySendTests(unittest.TestCase):
