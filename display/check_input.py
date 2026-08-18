@@ -26,6 +26,7 @@ import hashlib
 import os
 import pathlib
 import re
+import secrets
 import ssl
 import sys
 import urllib.request
@@ -163,16 +164,17 @@ def _read_stage_queue(clear: bool) -> list[dict] | None:
     return entries
 
 
-def _stage_snapshot() -> tuple[list[dict], str] | None:
-    """Return validated entries and a digest without changing the queue."""
-    if not QUEUE_FILE.exists():
-        return ([], "")
+def _stage_snapshot_bytes(path: pathlib.Path) -> tuple[list[dict], str, bytes] | None:
+    """Return validated entries, digest, and the exact stable bytes read."""
+    if not path.exists():
+        return ([], "", b"")
     try:
-        before = QUEUE_FILE.stat()
-        raw = QUEUE_FILE.read_text()
-        entries = _parse_stage_queue(raw)
-        after = QUEUE_FILE.stat()
-    except OSError:
+        before = path.stat()
+        raw = path.read_bytes()
+        text = raw.decode("utf-8")
+        entries = _parse_stage_queue(text)
+        after = path.stat()
+    except (OSError, UnicodeDecodeError):
         return None
     if entries is None:
         return None
@@ -180,7 +182,22 @@ def _stage_snapshot() -> tuple[list[dict], str] | None:
         after.st_ino, after.st_size, after.st_mtime_ns
     ):
         return None
-    return entries, hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return entries, hashlib.sha256(raw).hexdigest(), raw
+
+
+def _stage_snapshot(path: pathlib.Path = QUEUE_FILE) -> tuple[list[dict], str] | None:
+    """Return validated entries and a digest without changing the queue."""
+    snapshot = _stage_snapshot_bytes(path)
+    return (snapshot[0], snapshot[1]) if snapshot is not None else None
+
+
+def _restore_claim(claim: pathlib.Path) -> None:
+    """Restore a private claim without replacing newer queued input."""
+    try:
+        os.link(claim, QUEUE_FILE)
+        claim.unlink()
+    except OSError:
+        pass
 
 
 def _consume_digest(expected: str) -> bool:
@@ -201,10 +218,41 @@ def _promote_digest(expected: str) -> bool:
     snapshot = _stage_snapshot()
     if snapshot is None or not snapshot[0] or snapshot[1] != expected or TRIGGER_FILE.exists():
         return False
+    claim = QUEUE_FILE.with_name(
+        f"{QUEUE_FILE.name}.claim-{os.getpid()}-{secrets.token_hex(8)}"
+    )
     try:
-        QUEUE_FILE.replace(TRIGGER_FILE)
+        QUEUE_FILE.replace(claim)
     except OSError:
         return False
+
+    claimed = _stage_snapshot_bytes(claim)
+    if claimed is None or not claimed[0] or claimed[1] != expected:
+        _restore_claim(claim)
+        return False
+
+    publication = claim.with_name(
+        f"{TRIGGER_FILE.name}.tmp-{os.getpid()}-{secrets.token_hex(8)}"
+    )
+    try:
+        with publication.open("xb") as handle:
+            handle.write(claimed[2])
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Linking is an atomic no-clobber publication of the verified bytes.
+        os.link(publication, TRIGGER_FILE)
+    except OSError:
+        publication.unlink(missing_ok=True)
+        _restore_claim(claim)
+        return False
+    publication.unlink(missing_ok=True)
+
+    # Keep the claim until this recheck so late writes can be restored as queue data.
+    latest = _stage_snapshot(claim)
+    if latest is None or latest[1] != expected:
+        _restore_claim(claim)
+    else:
+        claim.unlink(missing_ok=True)
     return True
 
 

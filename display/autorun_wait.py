@@ -71,7 +71,15 @@ def _echo_entry(entry: dict) -> bool:
 
 
 def _echo_and_promote(captured: dict) -> bool:
-    """Echo first, then atomically promote the unchanged queue to the wrapper."""
+    """Claim the unchanged queue before publishing its browser transcript."""
+    promoted = subprocess.run(
+        [sys.executable, str(CHECK_INPUT), "--promote-digest", captured["digest"]],
+        capture_output=True, text=True,
+    )
+    if promoted.returncode != 0:
+        print("queue promotion failed; source queue left intact", flush=True)
+        return False
+
     entries = captured["entries"]
     index = 0
     while index < len(entries):
@@ -91,13 +99,6 @@ def _echo_and_promote(captured: dict) -> bool:
         if not _echo_entry(entries[index]):
             return False
         index += 1
-    promoted = subprocess.run(
-        [sys.executable, str(CHECK_INPUT), "--promote-digest", captured["digest"]],
-        capture_output=True, text=True,
-    )
-    if promoted.returncode != 0:
-        print("queue promotion failed; source queue left intact", flush=True)
-        return False
     print(f"handed off: {captured['output']}", flush=True)
     return True
 
