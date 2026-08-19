@@ -413,9 +413,10 @@ open-tabletop-gm/
     run-openrouter.sh   ← sequential runner for OpenRouter free/paid models
 ```
 
-Campaign data lives outside the repo:
+Campaign data lives outside the repo under `$GM_CAMPAIGN_ROOT`, defaulting to
+`$HOME/open-tabletop-gm` when the variable is unset:
 ```
-~/.local/share/open-tabletop-gm/campaigns/<name>/
+<campaign-root>/campaigns/<name>/
   state.md / world.md / npcs.md / session-log.md / characters/
 ```
 

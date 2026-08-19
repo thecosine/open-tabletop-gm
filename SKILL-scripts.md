@@ -9,7 +9,8 @@
 > This file is retained for reference only. Do not load it at session start.
 
 **Skill base directory:** the directory containing SKILL.md (referenced below as `<skill-base>`)
-**Campaigns directory:** `~/open-tabletop-gm/campaigns/`
+**Campaign root:** `$GM_CAMPAIGN_ROOT` when set; otherwise `$HOME/open-tabletop-gm`
+**Campaigns directory:** `<campaign-root>/campaigns/`
 
 Universal scripts live in `<skill-base>/scripts/`. System-specific scripts (character creation, stat calculation, data lookup) live in `<skill-base>/systems/<system>/` — load and use those if present for the active game system.
 
@@ -42,7 +43,7 @@ python3 <skill-base>/scripts/combat.py tracker '<JSON>' <round_num>
 
 # Initialize the canonical campaign combat store
 python3 <skill-base>/scripts/combat.py store-init \
-  --store <skill-base>/campaigns/CAMPAIGN/combat-state.json \
+  --store <campaign-root>/campaigns/CAMPAIGN/combat-state.json \
   --campaign CAMPAIGN --actors-file /path/to/actors.json --repo-root <skill-base>
 
 # Resolve a typed campaign-scoped weapon attack atomically
@@ -53,21 +54,29 @@ python3 <skill-base>/scripts/combat.py ingress \
 python3 <skill-base>/scripts/combat.py lifecycle-ingress \
   --request-file /path/to/lifecycle.json --repo-root <skill-base>
 
-# Inspect/recover committed reconciliation intents
+# Inspect/recover incomplete reconciliation intents; ingress normally auto-processes them
 python3 <skill-base>/scripts/combat.py outbox-list --campaign CAMPAIGN --repo-root <skill-base>
 python3 <skill-base>/scripts/combat.py outbox-process --campaign CAMPAIGN \
   --repo-root <skill-base> --expected-revision N [--dry-run]
 python3 <skill-base>/scripts/combat.py reconcile-status --campaign CAMPAIGN --repo-root <skill-base>
 ```
 
-`init` prints initiative order. Store only the authoritative combat-state path,
-combat ID, and revision in `state.md` under `## Active Combat`.
+`init` prints initiative order. `state.md → ## Active Combat` stores only a
+discovery/presentation pointer: combat-state path, combat ID, and last-observed
+revision. It is not mechanical authority. A valid campaign-scoped
+`combat-state.json` controls combat status and mechanics. Ingress automatically
+attempts outbox reconciliation; run `outbox-process` only for reported
+pending/incomplete work or recovery, using the current recovery revision. Keep
+exactly one `Revision:` line in `## Active Combat` and replace its value when
+refreshing the metadata; never append another line. Before emitting `start_turn`,
+inspect the store's `active_turn` and skip `start_turn` when that actor is already
+active. A successful attack leaves the turn active until explicit `end_turn`.
 
 ---
 
 ## Tracker Script — `scripts/tracker.py`
 
-Tracks conditions, concentration, timed effects, and death saves. State persists at `~/open-tabletop-gm/campaigns/<name>/tracker.json`.
+Tracks conditions, concentration, timed effects, and death saves. State persists at `<campaign-root>/campaigns/<name>/tracker.json`.
 
 ```bash
 CAMP=my-campaign
@@ -228,10 +237,10 @@ python3 <skill-base>/display/push_stats.py --turn-order \
   '[{"name":"Vesper","initiative":22,"type":"pc"},{"name":"Goblin","initiative":14,"type":"enemy"},{"name":"Aldric","initiative":11,"type":"pc"}]' \
   --turn-current "Vesper" --turn-round 1
 
-# Advance turn pointer:
+# After successful explicit end_turn, advance the display turn pointer:
 python3 <skill-base>/display/push_stats.py --turn-current "Goblin"
 
-# New round:
+# If that advancement wraps to the first combatant, also update the display round:
 python3 <skill-base>/display/push_stats.py --turn-current "Vesper" --turn-round 2
 
 # Combat ended:
@@ -260,7 +269,7 @@ python3 <skill-base>/display/push_stats.py --clear
 - Quest creation/update/reconciliation — update `state.md` first, then use
   `--refresh-quests`; this writes the campaign-local cache and broadcasts one
   complete stats snapshot without narration.
-- Combat start — `--turn-order`; each turn — `--turn-current`; end — `--turn-clear`
+- Combat start — `--turn-order`; after successful explicit `end_turn` — `--turn-current` (and `--turn-round` when wrapping to the first combatant); combat end — `--turn-clear`. Do not advance after an ordinary action while authoritative `active_turn` remains open. Previous/Next UI controls are manual correction only.
 - Any rest or time advance — `--world-time`
 
 ---
