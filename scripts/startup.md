@@ -3,7 +3,7 @@
 Read this file before: `/gm load` display push, sending any narration, or calling check_input.
 
 **Skill base:** `<skill-base>`
-**Campaigns:** `~/open-tabletop-gm/campaigns/`
+**Campaigns:** `<campaign-root>/campaigns/`, where `<campaign-root>` is `$GM_CAMPAIGN_ROOT` when set and `$HOME/open-tabletop-gm` otherwise
 
 ---
 

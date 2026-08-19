@@ -2,9 +2,11 @@
 
 Command signatures and brief descriptions. All procedures, script loading, and state transitions are defined in `SKILL-branches.md`, which is always in context.
 
-**Campaigns directory:** `~/open-tabletop-gm/campaigns/`
-**Characters directory:** `~/open-tabletop-gm/characters/`
+**Campaigns directory:** `<campaign-root>/campaigns/`
+**Characters directory:** `<campaign-root>/characters/`
 **Skill base:** `<skill-base>/`
+
+`<campaign-root>` is `$GM_CAMPAIGN_ROOT` when set and `$HOME/open-tabletop-gm` otherwise. It is runtime storage and is never inferred from `<skill-base>`.
 
 Do NOT run `git init` or any git commands in campaign directories.
 
@@ -50,7 +52,7 @@ Do NOT run `git init` or any git commands in campaign directories.
 
 1. If `[system]` not supplied, ask which game system
 2. **System version selection** — if the chosen system has more than one supported version (consult `systems/<system>/system.md → ## System Versions`), ask which to use. The default if the GM has no preference is whatever the system module declares as default. The chosen value is stamped into `state.md` header as `**System Version:** <value>` at step 13. Skip this step if the system module declares no versions.
-3. Create campaign directory at `~/open-tabletop-gm/campaigns/<name>/characters/`
+3. Create campaign directory at `<campaign-root>/campaigns/<name>/characters/`
    Initialize its deterministic clock with `python3 <skill-base>/scripts/calendar.py -c <name> init` after the campaign directory exists.
 4. Copy blank templates from `systems/<system>/` and `templates/` into the campaign directory
 5. Ask: party size and starting level
@@ -136,7 +138,7 @@ Factions: <N factions identified>
 ```
 Confirm before proceeding.
 
-**Step 5 — Create campaign files** at `~/open-tabletop-gm/campaigns/<name>/`:
+**Step 5 — Create campaign files** at `<campaign-root>/campaigns/<name>/`:
 
 - **world.md** — setting, geography, factions (with archetype, activity, goals), key locations, quest seeds
 - **npcs.md** — one-line index (name | role | one trait | status); full entries with voice, goals, relationships, secrets in **npcs-full.md**
@@ -192,7 +194,7 @@ Manage the dynamic campaign arc. Active only when `state.md → ## Campaign Arc`
 
 ## `/gm graph <subcommand>` — campaign relationship graph
 
-Local-only typed-edge relationship graph supplementing markdown. Stored at `~/open-tabletop-gm/campaigns/<name>/graph.json` (or wherever `GM_CAMPAIGN_ROOT` points). Supplements `npcs-full.md` / `session-log.md` — does not replace them. Edges are time-stamped (`since_session` / `until_session`), so historical state is recoverable.
+Local-only typed-edge relationship graph supplementing markdown. Stored at `<campaign-root>/campaigns/<name>/graph.json`. Supplements `npcs-full.md` / `session-log.md` — does not replace them. Edges are time-stamped (`since_session` / `until_session`), so historical state is recoverable.
 
 **Auto-pulled at `/gm load`** (scene-context, see SKILL-branches.md → `/gm load` → Step 4) and **swept at `/gm save`** (relationship-shift extraction, see SKILL-branches.md → `/gm save` → Step 4). The GM also uses `/gm graph scene-context` on demand mid-session, especially before heavy social or political scenes.
 

@@ -28,6 +28,7 @@
 *(Session 1 pending)*
 
 ## Active Combat
+*Discovery/presentation metadata only. A valid campaign-scoped combat-state.json is mechanical authority; the recorded revision is last-observed and may be stale. When populated, keep one revision entry and replace its value rather than appending another.*
 *(none)*
 
 ## Live State Flags

@@ -2,6 +2,8 @@
 
 This file is always in context. When any command or state transition occurs, look up the branch below. It tells you exactly which script file to read (if any) and what the terminal action is. Do not proceed to the terminal action until all listed steps are complete.
 
+`<campaign-root>` means `$GM_CAMPAIGN_ROOT` when set and `$HOME/open-tabletop-gm` otherwise. It is canonical runtime storage. `<skill-base>` remains the authority for scripts, code, and registries; never probe `<skill-base>/campaigns` or the default home campaign directory when `GM_CAMPAIGN_ROOT` is set.
+
 ---
 
 ## `/gm load <name>`
@@ -25,7 +27,7 @@ Skip this step entirely if `display=OFF`.
    Campaign registration also rebuilds the display-safe quest snapshot from
    `state.md → ## Active Quests`, replaces the prior campaign's browser quest
    cache, persists it as `display_quests.json`, and broadcasts the new snapshot.
-2. Read `~/open-tabletop-gm/campaigns/<name>/session_tail.json`. **The campaign-side path is the authoritative one — do NOT read** the legacy/fallback at `<skill-base>/display/session_tail.json`; that file may exist from older sessions or other campaigns and will mislead the replay. If the campaign-side file does not exist, skip the rest of this step (display starts blank).
+2. Read `<campaign-root>/campaigns/<name>/session_tail.json`. **The campaign-side path is the authoritative one — do NOT read** the legacy/fallback at `<skill-base>/display/session_tail.json`; that file may exist from older sessions or other campaigns and will mislead the replay. If the campaign-side file does not exist, skip the rest of this step (display starts blank).
 3. For each entry in the tail array, send it via `send.py` using the entry's keys:
    - `player_ooc` key present → `send.py --player-ooc <name>` with text via stdin
    - `gm_ooc` key present → `send.py --gm-ooc` with text via stdin
@@ -67,9 +69,9 @@ python3 <skill-base>/scripts/calendar.py -c <name> init
 This is idempotent. A compatible legacy `calendar.json` migrates its numeric current date without rewriting the legacy file. If an old custom date cannot map to the fixed 13×28 calendar, stop and ask the GM for `/gm time set YYYY-MM-DD HH:MM`; never invent an epoch.
 
 **Step 4 — Read these three files:**
-1. `~/open-tabletop-gm/campaigns/<name>/state.md`
-2. `~/open-tabletop-gm/campaigns/<name>/world.md`
-3. `~/open-tabletop-gm/campaigns/<name>/npcs.md`
+1. `<campaign-root>/campaigns/<name>/state.md`
+2. `<campaign-root>/campaigns/<name>/world.md`
+3. `<campaign-root>/campaigns/<name>/npcs.md`
 
 After reading `state.md`, check `## Session Flags` for `roll_mode:`. If the field is missing (legacy campaign predating the flag), ask once: *"Dice rolls — `players` (default: players roll their own PCs and you wait) or `auto` (you roll everything openly)?"* Write the answer as `roll_mode: players|auto` to `## Session Flags`. Default to `players` if no answer. See SKILL.md → Dice convention for the in-session behaviour.
 
@@ -97,8 +99,8 @@ If output reads `# graph not initialized` — graph hasn't been seeded for this 
 
 2. **Backup the campaign directory** (always — both fresh and legacy):
    ```
-   cp -R ~/open-tabletop-gm/campaigns/<name> \
-         ~/open-tabletop-gm/campaigns/<name>.backup-$(date +%Y%m%d-%H%M%S)
+   cp -R <campaign-root>/campaigns/<name> \
+         <campaign-root>/campaigns/<name>.backup-$(date +%Y%m%d-%H%M%S)
    ```
    Tell the GM the backup path explicitly so they can revert if needed.
 
@@ -211,22 +213,24 @@ Each player message during an active session:
 
 1. Read `<skill-base>/scripts/combat.md`
 2. Collect combatants: name, dex_mod, HP, AC, type (pc/enemy)
-3. Initialize the schema-versioned authoritative `combat-state.json`; record only its path, combat ID, and revision in `state.md → ## Active Combat`.
+3. Initialize the schema-versioned authoritative `combat-state.json`; record its path, combat ID, and last-observed revision in `state.md → ## Active Combat` for discovery/presentation. That block is not mechanical authority. An existing valid campaign-scoped store controls combat status and mechanics even if the block is stale or missing. Keep exactly one `Revision:` line in the block; when refreshing it, replace that line's value rather than appending another line.
 4. If display running: push turn order via `push_stats.py --turn-order`
 5. Enter COMBAT state
 
 ## COMBAT — Turn
 
 Each turn in combat:
-1. Emit typed turn boundaries through `combat.py lifecycle-ingress`, then resolve every weapon attack through `combat.py ingress`. The ingress payload names the campaign, authoritative target ID, and registered attack profile; it never supplies paths, AC, HP, or damage mechanics. Free-text attack declarations must be converted to this typed request before any mechanical resolution. Use `dice.py` only for standalone non-attack rolls.
+1. Validate the existing campaign-scoped `combat-state.json`, then emit typed turn boundaries through `combat.py lifecycle-ingress` and resolve every weapon attack through `combat.py ingress`. Before emitting `start_turn`, inspect the authoritative store's `active_turn`; if it already names the same actor, do not emit another `start_turn` and continue the existing turn. The ingress payload names the campaign, authoritative target ID, and registered attack profile; it never supplies paths, AC, HP, or damage mechanics. Free-text attack declarations must be converted to this typed request before any mechanical resolution. Use `dice.py` only for standalone non-attack rolls.
 2. Run `tracker.py effect tick` for the active combatant
-3. Run `combat.py outbox-process` at the committed revision. Target HP/conditions, persistent resource reconciliation, and the campaign-local display projection are applied from the durable outbox; never import display state into combat authority.
+3. Inspect each ingress response's automatic `reconciliation` result. Target HP/conditions, persistent resources, and the campaign-local display projection are normally applied there. Run explicit `combat.py outbox-process` only when reconciliation reports pending/incomplete work or during recovery, using the current recovery revision, never the earlier transaction revision.
 4. If display running: consume the committed projection for presentation; do not independently mutate authoritative HP/resources.
 5. If display running: send narration via `send.py`
 
+A successful attack does not end the actor's turn. The authoritative `active_turn` remains open until an explicit `end_turn` lifecycle event succeeds. While it remains open, do not advance display `turn_order.current` after an ordinary attack or other action. After successful explicit `end_turn`, advance `push_stats.py --turn-current` to the next combatant; if that advancement wraps to the first combatant, update `--turn-round` appropriately. Previous/Next UI controls are manual correction only, not the normal turn-completion path.
+
 ## COMBAT — End
 
-1. End the active turn, then emit typed `combat_end` through `combat.py lifecycle-ingress`; process and verify its resource, display, and archive intents with `outbox-process` / `reconcile-status`.
+1. End the active turn, then emit typed `combat_end` through `combat.py lifecycle-ingress`; inspect its automatic reconciliation and verify with `reconcile-status`. Use `outbox-process` only for reported incomplete work or recovery.
 2. Run `tracker.py clear`
 3. Clear turn order: `push_stats.py --turn-clear`
 4. Resolve the encounter record with a stable event ID and known XP amount.
@@ -245,7 +249,7 @@ Each turn in combat:
 4. If no authoritative combat state is active, run `calendar.py rest short|long --event-id <stable-rest-id>` exactly once
 5. Update state.md in-world date
 6. If display running: `push_stats.py --world-time` + HP/slot updates
-7. If authoritative combat state is active, emit the matching typed `short_rest` or `long_rest` through `combat.py lifecycle-ingress`, then run `outbox-process`; its durable outbox advances campaign time and restores store-owned Pact resources exactly once. Do not also run `calendar.py rest`.
+7. If authoritative combat state is active, emit the matching typed `short_rest` or `long_rest` through `combat.py lifecycle-ingress` and inspect its automatic reconciliation. Use `outbox-process` only for reported incomplete work or recovery; the durable outbox advances campaign time and restores store-owned Pact resources exactly once. Do not also run `calendar.py rest`.
 
 ## `/gm time [argument]`
 
@@ -337,7 +341,7 @@ No script reads needed.
 
 ## `/gm list`
 
-1. Glob `*/state.md` in `~/open-tabletop-gm/campaigns/`
+1. Glob `*/state.md` in `<campaign-root>/campaigns/`
 2. Print table: campaign name | system | last session date | session count
 
 ---

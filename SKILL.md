@@ -283,15 +283,26 @@ GMEND
 **Per-turn combat sequence:**
 ```
 a. send.py --player  ← player action
-b. Convert explicit weapon intent to the strict typed schema and call `combat.py ingress`; free text and plain `dice.py` never resolve weapon mechanics.
+b. Inspect authoritative `active_turn`. Emit `start_turn` only when the same actor is not already active, then convert explicit weapon intent to the strict typed schema and call `combat.py ingress`; free text and plain `dice.py` never resolve weapon mechanics.
 c. send.py --dice    ← ALL roll results with context
-d. `combat.py outbox-process` ← apply committed target/resource/display intents exactly once
+d. Inspect ingress's automatic `reconciliation` result. Run `combat.py outbox-process` only if reconciliation is pending/incomplete or during recovery, using the current recovery revision rather than the earlier transaction revision.
    tracker.py        ← non-combat-store effects, death/incapacitation if applicable
    tracker.py effect tick <actor>  ← decrement round effects; prints expiry warnings
 e. Write full narration
 f. send.py [--stat-*] ← complete narration; present the committed display projection, never use it as authority
-g. push_stats.py --turn-current  ← advance turn pointer
+g. After a successful explicit `end_turn` only: push_stats.py --turn-current NEXT ← advance the display pointer; include --turn-round N when wrapping to the first combatant
 ```
+
+A successful attack does not end the actor's turn. Keep the authoritative turn
+active until an explicit `end_turn` lifecycle event succeeds. Do not advance
+`turn_order.current` after an ordinary attack or any other action while
+authoritative `active_turn` remains open. After successful `end_turn`, advance
+the display to the next combatant; when that wraps to the first combatant, also
+update the display round. Previous/Next UI controls are manual correction only,
+not normal turn completion. When mirroring the last-observed store revision to
+`state.md → ## Active Combat`, preserve exactly one `Revision:` line and replace
+its value. The block remains discovery and presentation metadata, never
+mechanical authority.
 
 ---
 
@@ -373,7 +384,7 @@ Tutor block always goes **last** in the send sequence.
 1. If system not given, ask: *"Which game system? (dnd5e / or describe your own)"*. Load `systems/<system>/system.md`.
 2. **System version** — if the system module declares supported versions (`## System Versions`), ask which to use. Stamp it into `state.md` header at step 13 as `**System Version:** <value>`.
 3. Ask: *"Start the cinematic display companion? [y/n]"* — if yes, run `bash <skill-base>/display/start-display.sh`.
-4. Create `~/open-tabletop-gm/campaigns/<name>/characters/`. This path is always relative to the user's home directory — NOT inside the skill base directory. Use the absolute path `$HOME/open-tabletop-gm/campaigns/<name>/characters/`. Copy templates from `<skill-base>/templates/` (state.md, world.md, npcs.md, session-log.md). Do NOT run git init.
+4. Create `<campaign-root>/campaigns/<name>/characters/`, where `<campaign-root>` is `$GM_CAMPAIGN_ROOT` when set and `$HOME/open-tabletop-gm` otherwise. Never derive runtime campaign storage from the skill base. Copy templates from `<skill-base>/templates/` (state.md, world.md, npcs.md, session-log.md). Do NOT run git init.
 5. Ask party size and starting level.
 6. **Tone wizard** (one message, all four): Tone · Magic level · Setting type · Danger level.
 7. **World Foundations** — geography, magic system, pantheon, calendar → write to world.md + seed in-world date in state.md.
@@ -386,7 +397,7 @@ Tutor block always goes **last** in the send sequence.
 14. Confirm. Offer `/gm character new`.
 
 ### `/gm load <campaign-name>`
-1. Read `~/open-tabletop-gm/campaigns/<name>/state.md` — confirm it exists.
+1. Read `<campaign-root>/campaigns/<name>/state.md` — confirm it exists. If `GM_CAMPAIGN_ROOT` is set, do not probe the skill-base or default home campaign directories.
 2. Ask: *"Start the cinematic display companion? [y/n]"*
 3. Read `SKILL-scripts.md` and `SKILL-commands.md` into context.
 4. **System-version migration check** for legacy campaigns: `python3 <skill-base>/scripts/migrate_system_version.py <name> --check`. If exit 1, prompt the GM to stamp the system's default version. See `/gm load` branch in `SKILL-branches.md`.
