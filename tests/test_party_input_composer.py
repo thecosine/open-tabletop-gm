@@ -418,18 +418,20 @@ export GM_DISPLAY_LIB_ONLY=1 GM_DISPLAY_STOP_ATTEMPTS=50 GM_DISPLAY_STOP_INTERVA
 source "$1"
 record="$2/owned.pid"
 ready="$2/ready"
+term_received="$2/term-received"
+record_state="$2/record-state"
 marker="delayed-owned-process"
-python3 -c 'import pathlib,signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: (time.sleep(.18), sys.exit(0))); pathlib.Path(sys.argv[1]).write_text("ready"); time.sleep(20)' "$ready" "$marker" &
+(exec -a "$marker" python3 -c 'import pathlib,signal,sys,time; exec("record=pathlib.Path(sys.argv[1])\nready=pathlib.Path(sys.argv[2])\nterm_received=pathlib.Path(sys.argv[3])\nrecord_state=pathlib.Path(sys.argv[4])\ndef stop(*_):\n    term_received.write_text(\"received\")\n    time.sleep(.18)\n    identity=pathlib.Path(str(record) + \".identity\")\n    state=\"present\" if record.exists() and identity.exists() else \"missing\"\n    record_state.write_text(state + \"\\n\")\n    raise SystemExit(0)"); signal.signal(signal.SIGTERM, stop); ready.write_text("ready"); time.sleep(20)' "$record" "$ready" "$term_received" "$record_state") &
 child=$!
 identity=""
 for _ in $(seq 1 50); do [[ -f "$ready" ]] && identity=$(process_identity "$child") && break; sleep .01; done
 write_pid_record "$record" "$child" "$identity"
-started=$(python3 -c 'import time; print(time.monotonic())')
 stop_owned_pid_file "$record" "$marker"
-elapsed=$(python3 -c 'import sys,time; print(time.monotonic()-float(sys.argv[1]))' "$started")
+[[ -f "$term_received" ]]
+read -r observed_record_state < "$record_state"
+[[ "$observed_record_state" == present ]]
 wait "$child" 2>/dev/null || true
 [[ ! -e "$record" && ! -e "$record.identity" ]]
-python3 -c 'import sys; assert float(sys.argv[1]) >= .14' "$elapsed"
 '''
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(["bash", "-c", harness, str(script), str(script), directory], check=True)
