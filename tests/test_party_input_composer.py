@@ -250,7 +250,7 @@ class ComposerMarkupTests(unittest.TestCase):
         begin = re.search(r"function _beginCombatCampaign\(.*?\n\}", self.source, re.DOTALL).group(0)
         for reset in (
             "_combatToken = null", "_combatTokenGeneration = -1",
-            "_combatClaimGeneration = -1", "_resetCombatProjection()",
+            "_combatClaimGeneration = -1", "_resetCombatProjection(",
         ):
             self.assertIn(reset, begin)
 
@@ -267,7 +267,9 @@ class ComposerMarkupTests(unittest.TestCase):
         self.assertNotIn("disposition: actor.kind === 'enemy' ? 'hostile' : 'friendly'", projection)
         self.assertNotIn("const order = Object.entries(combatants)", projection)
         self.assertNotIn("turn_order: {order", projection)
-        self.assertIn("turnUpdate.current = active ? active.display_name : null", projection)
+        self.assertIn("receipt.event_type === 'start_turn'", projection)
+        self.assertIn("receipt.event_type === 'next_round'", projection)
+        self.assertNotIn("turnUpdate.current = active ? active.display_name : null;\n  }\n  if (Number.isInteger", projection)
 
     def test_remote_claim_is_explicit_secure_and_bootstrap_failures_are_visible(self):
         self.assertIn("claimCapability: async claim =>", self.source)
@@ -615,6 +617,61 @@ class StagingTransportTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         dispatch.assert_called_once_with(Path(self.app._SKILL_DIR), payload)
+
+    def test_explicit_end_turn_advances_display_once_and_attack_does_not(self):
+        lifecycle = {
+            "schema_version": 1, "campaign": "test-campaign", "request_id": "browser-turn-end-0002",
+            "expected_revision": 3, "event_type": "end_turn", "actor_id": "mythlon",
+        }
+        attack = {
+            "schema_version": 1, "campaign": "test-campaign", "request_id": "browser-attack-0002",
+            "expected_revision": 4, "actor_id": "mythlon", "target_id": "target-1",
+            "weapon": {"item_id": "blade", "instance": 1, "equipped_slot": "main_hand"},
+            "attack_kind": "main_hand", "attack_profile_id": "blade-profile",
+            "roll": {"mode": "supplied", "raw_d20": 12, "advantage": "normal", "source": "browser"},
+            "optional_feature_ids": [],
+        }
+        result = {"committed": True, "transaction": {
+            "event_id": "combat-1:lifecycle:end-2", "actor_id": "mythlon",
+        }}
+        with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"), mock.patch.object(
+            self.app._combat_ingress, "dispatch_lifecycle", return_value=result
+        ), mock.patch.object(
+            self.app, "_authoritative_actor_names", return_value={"Mythlon", "mythlon"}
+        ) as actor_names, mock.patch.object(
+            self.app, "_advance_authoritative_turn", return_value={"state": "advanced"}
+        ) as advance, mock.patch.object(
+            self.app._combat_ingress, "dispatch_attack", return_value={"committed": True}
+        ):
+            ended = self.client.post(
+                "/combat/lifecycle", json=lifecycle, headers=self._combat_headers(self.gm_device)
+            )
+            acted = self.client.post("/combat/attack", json=attack, headers=self._combat_headers())
+        self.assertEqual(ended.status_code, 200)
+        self.assertEqual(acted.status_code, 200)
+        actor_names.assert_called_once_with(
+            "test-campaign", "mythlon", "combat-1:lifecycle:end-2",
+        )
+        advance.assert_called_once_with("combat-1:lifecycle:end-2", {"Mythlon", "mythlon"})
+
+    def test_cli_turn_completion_endpoint_is_idempotent(self):
+        payload = {
+            "campaign": "test-campaign",
+            "event_id": "combat-1:lifecycle:end-cli-1",
+            "actor_id": "mythlon",
+        }
+        with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"), mock.patch.object(
+            self.app, "_authoritative_actor_names", return_value={"Mythlon", "mythlon"}
+        ), mock.patch.object(
+            self.app, "_advance_authoritative_turn", side_effect=[
+                {"state": "advanced"}, {"state": "duplicate"},
+            ]
+        ) as advance:
+            first = self.client.post("/combat/turn-complete", json=payload)
+            retry = self.client.post("/combat/turn-complete", json=payload)
+        self.assertEqual(first.get_json()["state"], "advanced")
+        self.assertEqual(retry.get_json()["state"], "duplicate")
+        self.assertEqual(advance.call_count, 2)
 
     def test_free_text_mechanical_attack_endpoint_is_rejected(self):
         with mock.patch.object(self.app, "_active_campaign", return_value="test-campaign"):
@@ -1109,6 +1166,17 @@ class DisplaySendTests(unittest.TestCase):
                 self.send.main()
             self.assertEqual(posted[0]["campaign_timestamp"], expected)
 
+    def test_gm_prose_is_marked_as_a_turn_response_but_player_echo_is_not(self):
+        for args, expected in (([], True), (["--action", "Player Action"], False)):
+            posted = []
+            with mock.patch.object(sys, "argv", ["send.py", *args]), mock.patch.object(
+                sys, "stdin", io.StringIO("Visible text")
+            ), mock.patch.object(self.send, "_read_token", return_value=""), mock.patch.object(
+                self.send, "_post", side_effect=lambda _url, body, _token: posted.append(json.loads(body)) or True
+            ):
+                self.send.main()
+            self.assertEqual(posted[0].get("turn_response", False), expected)
+
 
 class WrapperMultilineTests(unittest.TestCase):
     @classmethod
@@ -1131,6 +1199,12 @@ class WrapperMultilineTests(unittest.TestCase):
         self.assertIsNotNone(sanitized)
         self.assertEqual(json.loads(sanitized)[0]["text"], text)
         self.assertIn(f"[Mythlon]: {text}", self.wrapper._format_injection(sanitized))
+
+    def test_wrapper_embeds_exact_completion_correlation_token(self):
+        sanitized = self.wrapper._sanitize(json.dumps([{"character": "Mythlon", "text": "Wait here."}]))
+        rendered = self.wrapper._format_injection(sanitized, "a" * 32)
+        self.assertIn("[Mythlon]: Wait here.", rendered)
+        self.assertTrue(rendered.endswith(f"\n[[OTGM_TURN:{'a' * 32}]]"))
 
     def test_wrapper_accepts_several_paragraphs_and_rejects_over_limit(self):
         accepted = "p" * 15_000

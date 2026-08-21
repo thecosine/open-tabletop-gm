@@ -1445,6 +1445,19 @@ def _set_turn_pending(value: dict | None) -> None:
         _atomic_write_json(path, value)
 
 
+def _mark_pending_browser_publication() -> None:
+    """Persist that explicit send.py prose satisfied the current browser turn."""
+    with _turn_completion_lock:
+        pending = dict(_turn_pending or {})
+        if (
+            pending
+            and pending.get("campaign") == _active_campaign_name()
+            and not pending.get("browser_published")
+        ):
+            pending["browser_published"] = True
+            _set_turn_pending(pending)
+
+
 _turn_pending = _load_turn_pending()
 
 
@@ -1682,6 +1695,7 @@ def _campaign_timestamp(data: dict | None = None) -> str | None:
 def _stats_for_display(stats: dict, campaign: str = "") -> dict:
     """Copy live stats and attach canonical character summaries for browser use."""
     snapshot = dict(stats)
+    snapshot.pop("_authoritative_turn_advances", None)
     active = campaign or _active_campaign()
     players = snapshot.get("players")
     if not active or not isinstance(players, list):
@@ -2307,6 +2321,9 @@ def chunk():
     is_player_meta = bool(data.get("player_meta"))
     is_gm_meta     = bool(data.get("gm_meta"))
     is_sideband = is_player_ooc or is_gm_ooc or is_player_meta or is_gm_meta
+    is_turn_response = data.get("turn_response") is True and not any((
+        is_action, is_player, is_player_ooc, is_player_meta, is_dice,
+    ))
 
     # Typed text comes from send.py (no ANSI/chrome) — light clean only.
     # DM narration may come from wrapper.py — full clean.
@@ -2390,6 +2407,8 @@ def chunk():
 
     _persist_log()
     _persist_tail()
+    if is_turn_response:
+        _mark_pending_browser_publication()
     _broadcast(payload)
     return "", 204
 
@@ -2443,8 +2462,12 @@ def turn_completion():
         if existing:
             if existing.get("text_sha256") != hashlib.sha256(cleaned.encode("utf-8")).hexdigest():
                 return "Completion ID conflicts with prior text", 409
-            _set_turn_pending(None)
-            _broadcast({"dm_processing": False, "turn_completion": completion_id})
+            if (
+                pending.get("session_id") == session_id
+                and pending.get("user_message_id") == parent_id
+            ):
+                _set_turn_pending(None)
+                _broadcast({"dm_processing": False, "turn_completion": completion_id})
             return {"status": "duplicate", "completion_id": completion_id}, 200
 
         if (
@@ -2455,17 +2478,9 @@ def turn_completion():
         ):
             return "Completion does not match the pending autorun turn", 409
 
-        # If explicit send.py prose already arrived after wrapper injection, it is
-        # the model-selected display rendering. Record completion without adding a
-        # second narration block.
-        with _text_log_lock:
-            turn_entries = list(_text_log)[int(pending.get("log_index", 0)):]
-        explicitly_published = any(
-            entry.get("text")
-            and not any(key in entry for key in ("action", "player", "player_ooc", "player_meta", "dice"))
-            and not any(key in entry for key in ("xp_award", "milestone_award", "milestone_spend", "effect_expired"))
-            for entry in turn_entries
-        )
+        # Explicit send.py prose is the model-selected browser response. The
+        # persisted marker remains reliable when the bounded replay log rotates.
+        explicitly_published = pending.get("browser_published") is True
         record = {
             "session_id": session_id,
             "message_id": message_id,
@@ -2512,6 +2527,10 @@ def turn_completion_status():
         return {
             "pending": bool(pending),
             "bound": bool(pending.get("session_id") and pending.get("user_message_id")),
+            **({
+                "session_id": pending["session_id"],
+                "user_message_id": pending["user_message_id"],
+            } if pending.get("session_id") and pending.get("user_message_id") else {}),
         }, 200
 
 
@@ -2520,15 +2539,20 @@ def turn_completion_bind():
     if not _token_ok() or not _is_loopback(request.remote_addr):
         return "Forbidden", 403
     data = request.get_json(silent=True) or {}
-    if set(data) != {"session_id", "user_message_id"}:
+    if set(data) != {"turn_id", "session_id", "user_message_id"}:
         return "Binding fields required", 400
+    turn_id = str(data.get("turn_id") or "").strip()
     session_id = str(data.get("session_id") or "").strip()
     user_message_id = str(data.get("user_message_id") or "").strip()
-    if not session_id or not user_message_id:
+    if not re.fullmatch(r"[a-f0-9]{32}", turn_id) or not session_id or not user_message_id:
         return "Invalid turn binding", 400
     with _turn_completion_lock:
         pending = dict(_turn_pending or {})
-        if not pending or pending.get("campaign") != _active_campaign_name():
+        if (
+            not pending
+            or pending.get("campaign") != _active_campaign_name()
+            or pending.get("turn_id") != turn_id
+        ):
             return "No pending autorun turn", 409
         if pending.get("session_id") and (
             pending.get("session_id") != session_id or pending.get("user_message_id") != user_message_id
@@ -2680,6 +2704,87 @@ def _tick_round_effects_locked(actor_name: str) -> list[dict]:
 def _turn_order_entry_name(entry) -> str:
     value = entry.get("name") if isinstance(entry, dict) else entry
     return value.strip() if isinstance(value, str) else ""
+
+
+def _advance_authoritative_turn(event_id: str, actor_names: set[str]) -> dict:
+    """Advance display initiative once for a committed authoritative end_turn."""
+    normalized_actors = {name.strip().lower() for name in actor_names if name and name.strip()}
+    if not event_id or not normalized_actors:
+        raise ValueError("authoritative turn identity is unavailable")
+
+    expire_events: list[dict] = []
+    with _stats_lock:
+        receipts = _current_stats.get("_authoritative_turn_advances", [])
+        if not isinstance(receipts, list):
+            receipts = []
+        if event_id in receipts:
+            return {"state": "duplicate", "turn_order": _current_stats.get("turn_order")}
+
+        turn_order = _current_stats.get("turn_order")
+        if not isinstance(turn_order, dict):
+            raise ValueError("turn order unavailable")
+        order = turn_order.get("order")
+        if not isinstance(order, list) or not order:
+            raise ValueError("turn order unavailable")
+        names = [_turn_order_entry_name(entry) for entry in order]
+        current_name = _turn_order_entry_name(turn_order.get("current"))
+        if current_name.lower() not in normalized_actors:
+            raise ValueError("display current actor does not match the ended turn")
+        current_index = next((
+            index for index, name in enumerate(names)
+            if name and name.lower() == current_name.lower()
+        ), None)
+        if current_index is None:
+            raise ValueError("current actor is not in turn order")
+        target_index = (current_index + 1) % len(names)
+        target_name = names[target_index]
+        if not target_name:
+            raise ValueError("target actor is invalid")
+
+        updated = dict(turn_order)
+        updated["current"] = target_name
+        if target_index == 0:
+            round_number = updated.get("round")
+            if isinstance(round_number, (int, float)) and not isinstance(round_number, bool):
+                updated["round"] = round_number + 1
+
+        candidate = copy.deepcopy(_current_stats)
+        candidate["turn_order"] = updated
+        candidate["_authoritative_turn_advances"] = [*receipts, event_id]
+        previous = copy.deepcopy(_current_stats)
+        try:
+            _current_stats.clear()
+            _current_stats.update(candidate)
+            expire_events = _tick_round_effects_locked(target_name)
+            candidate = copy.deepcopy(_current_stats)
+            _atomic_write_json(pathlib.Path(STATS_FILE), candidate)
+        except Exception:
+            _current_stats.clear()
+            _current_stats.update(previous)
+            raise
+        current = dict(_current_stats)
+
+    _broadcast({"stats": _stats_for_display(current)})
+    for event in expire_events:
+        _broadcast({"effect_expired": event})
+    return {"state": "advanced", "turn_order": updated}
+
+
+def _authoritative_actor_names(campaign: str, actor_id: str, event_id: str) -> set[str]:
+    names = {actor_id}
+    store = _combat_ingress._campaign_store(pathlib.Path(_SKILL_DIR), campaign)
+    state = _combat_ingress.combat.load_store(store)
+    event = state.get("outbox", {}).get(event_id)
+    if (
+        not isinstance(event, dict)
+        or event.get("event_type") != "end_turn"
+        or event.get("payload", {}).get("actor_id") != actor_id
+    ):
+        raise ValueError("event is not the matching authoritative end_turn")
+    combatant = state.get("combatants", {}).get(actor_id)
+    if isinstance(combatant, dict) and combatant.get("display_name"):
+        names.add(str(combatant["display_name"]))
+    return names
 
 
 @app.route("/quests/refresh", methods=["POST"])
@@ -3936,9 +4041,51 @@ def typed_combat_lifecycle():
         if not isinstance(data, dict) or data.get("campaign") != campaign:
             raise _combat_ingress.AttackIngressError("typed lifecycle campaign must match the active campaign")
         result = _combat_ingress.dispatch_lifecycle(pathlib.Path(_SKILL_DIR), data)
+        if data.get("event_type") == "end_turn":
+            transaction = result.get("transaction", {})
+            event_id = transaction.get("event_id")
+            actor_id = transaction.get("actor_id")
+            if event_id:
+                try:
+                    result["display_advancement"] = _advance_authoritative_turn(
+                        event_id,
+                        _authoritative_actor_names(campaign, actor_id, event_id),
+                    )
+                except (
+                    OSError, ValueError, json.JSONDecodeError,
+                    _combat_ingress.AttackIngressError,
+                    _combat_ingress.combat.CombatTransactionError,
+                ) as exc:
+                    result["display_advancement"] = {"state": "pending", "error": str(exc)}
         return jsonify(result), 200
     except _combat_ingress.AttackIngressError as exc:
         return jsonify({"error": str(exc), "mechanical_resolution": "rejected"}), 409
+
+
+@app.route("/combat/turn-complete", methods=["POST"])
+def authoritative_turn_complete():
+    """Apply the display-only initiative transition for a committed end_turn."""
+    if not _token_ok() or not _is_loopback(request.remote_addr):
+        return "Forbidden", 403
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {"campaign", "event_id", "actor_id"}:
+        return "Turn completion fields required", 400
+    campaign = str(data.get("campaign") or "")
+    event_id = str(data.get("event_id") or "")
+    actor_id = str(data.get("actor_id") or "")
+    if campaign != _active_campaign() or not event_id or len(event_id) > 300 or not actor_id:
+        return "Turn completion identity is invalid", 409
+    try:
+        result = _advance_authoritative_turn(
+            event_id, _authoritative_actor_names(campaign, actor_id, event_id),
+        )
+        return jsonify(result), 200
+    except (
+        OSError, ValueError, json.JSONDecodeError,
+        _combat_ingress.AttackIngressError,
+        _combat_ingress.combat.CombatTransactionError,
+    ) as exc:
+        return jsonify({"state": "pending", "error": str(exc)}), 409
 
 
 @app.route("/combat/projection", methods=["GET"])
@@ -4075,15 +4222,21 @@ def queue_consumed():
     """
     if not _token_ok():
         return "Forbidden", 403
+    data = request.get_json(silent=True) or {}
+    turn_id = str(data.get("turn_id") or "").strip()
     with _queue_status_lock:
         _queue_status.clear()
-    with _turn_completion_lock, _text_log_lock:
-        _set_turn_pending({
-            "campaign": _active_campaign_name(),
-            "log_index": len(_text_log),
-            "injected_at": _time.time(),
-        })
-    _broadcast({"queue_status": [], "dm_processing": True})
+    if re.fullmatch(r"[a-f0-9]{32}", turn_id):
+        with _turn_completion_lock:
+            _set_turn_pending({
+                "campaign": _active_campaign_name(),
+                "browser_published": False,
+                "injected_at": _time.time(),
+                "turn_id": turn_id,
+            })
+        _broadcast({"queue_status": [], "dm_processing": True})
+    else:
+        _broadcast({"queue_status": []})
     return "", 204
 
 

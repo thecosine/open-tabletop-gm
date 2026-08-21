@@ -21,9 +21,12 @@ Example:
 """
 
 import json
+import os
 import random
-import sys
 import re
+import sys
+import urllib.error
+import urllib.request
 
 try:
     from .paired_pact_runtime import PactRuntimeError
@@ -114,6 +117,51 @@ def format_attack(r: dict) -> str:
     return "\n".join(lines)
 
 
+def notify_display_turn_completion(repo_root, payload: dict, transaction: dict) -> dict:
+    """Notify the localhost display after a committed authoritative end_turn."""
+    display_dir = repo_root / "display"
+    try:
+        scheme = (display_dir / ".scheme").read_text(encoding="utf-8").strip()
+        if scheme not in {"http", "https"}:
+            scheme = "http"
+    except OSError:
+        scheme = "http"
+    try:
+        token = (display_dir / ".token").read_text(encoding="utf-8").strip()
+    except OSError:
+        token = ""
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["X-DND-Token"] = token
+    display_request = urllib.request.Request(
+        f"{scheme}://127.0.0.1:{os.environ.get('GM_DISPLAY_PORT', '5001')}/combat/turn-complete",
+        data=json.dumps({
+            "campaign": payload["campaign"],
+            "event_id": transaction["event_id"],
+            "actor_id": transaction["actor_id"],
+        }).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urllib.request.urlopen(display_request, timeout=2) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def dispatch_ingress_command(cmd: str, repo_root, payload: dict) -> dict:
+    """Dispatch one CLI ingress request and synchronize explicit turn completion."""
+    result = dispatch_attack(repo_root, payload) if cmd == "ingress" else dispatch_lifecycle(repo_root, payload)
+    if cmd == "lifecycle-ingress" and payload.get("event_type") == "end_turn":
+        transaction = result.get("transaction", {})
+        if transaction.get("event_id"):
+            try:
+                result["display_advancement"] = notify_display_turn_completion(
+                    repo_root, payload, transaction,
+                )
+            except (OSError, ValueError, urllib.error.URLError) as exc:
+                result["display_advancement"] = {"state": "pending", "error": str(exc)}
+    return result
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__)
@@ -185,7 +233,7 @@ if __name__ == "__main__":
         request_path = Path(args[args.index("--request-file") + 1])
         repo_root = Path(args[args.index("--repo-root") + 1])
         _, payload = read_bounded(request_path, "combat ingress request")
-        result = dispatch_attack(repo_root, payload) if cmd == "ingress" else dispatch_lifecycle(repo_root, payload)
+        result = dispatch_ingress_command(cmd, repo_root, payload)
         print("COMBAT_INGRESS_JSON:", json.dumps(result, sort_keys=True))
 
     elif cmd in {"outbox-list", "outbox-process", "reconcile-status", "startup-recover"}:

@@ -154,6 +154,27 @@ class EncounterTurnNavigationTests(unittest.TestCase):
         self.mod._load_stats()
         self.assertEqual(self.mod._current_stats["turn_order"], persisted["turn_order"])
 
+    def test_authoritative_end_turn_advances_exactly_once(self):
+        first = self.mod._advance_authoritative_turn("combat-1:end-1", {"Mythlon", "mythlon"})
+        second = self.mod._advance_authoritative_turn("combat-1:end-1", {"Mythlon", "mythlon"})
+        self.assertEqual(first["state"], "advanced")
+        self.assertEqual(second["state"], "duplicate")
+        self.assertEqual(self.mod._current_stats["turn_order"]["current"], "Goblin")
+        public = self.mod._stats_for_display(self.mod._current_stats)
+        self.assertNotIn("_authoritative_turn_advances", public)
+
+    def test_authoritative_end_turn_wraps_and_increments_round_once(self):
+        self.mod._current_stats["turn_order"]["current"] = "Sassafras"
+        self.mod._advance_authoritative_turn("combat-1:end-wrap", {"Sassafras"})
+        self.mod._advance_authoritative_turn("combat-1:end-wrap", {"Sassafras"})
+        self.assertEqual(self.mod._current_stats["turn_order"]["current"], "Mythlon")
+        self.assertEqual(self.mod._current_stats["turn_order"]["round"], 3)
+
+    def test_authoritative_end_turn_rejects_actor_mismatch(self):
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.mod._advance_authoritative_turn("combat-1:end-wrong", {"Goblin"})
+        self.assertEqual(self.mod._current_stats["turn_order"]["current"], "Mythlon")
+
 
 class EncounterTurnControlFrontendTests(unittest.TestCase):
     def test_controls_are_compact_accessible_buttons(self):

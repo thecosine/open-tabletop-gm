@@ -673,6 +673,9 @@ def main() -> None:
         sys.exit(2)
 
     chunks_sent = 0
+    turn_response = not any((
+        args.player_ooc, args.player_meta, args.player, args.dice, args.action,
+    ))
     # ── Campaign registration ─────────────────────────────────────────────────
     # Sent with or without narration text. The server writes .campaign and reloads
     # the per-campaign text log so late-connecting browsers see the right session tail.
@@ -681,6 +684,8 @@ def main() -> None:
         attach_timestamp(payload)
         if text.strip():
             payload["text"] = text
+            if turn_response:
+                payload["turn_response"] = True
             # Attach any message-type flags
             if args.player_ooc:
                 payload["player_ooc"] = args.player_ooc
@@ -717,6 +722,8 @@ def main() -> None:
         )
         for chunk in chunks:
             payload = {"text": chunk}
+            if turn_response:
+                payload["turn_response"] = True
             attach_timestamp(payload)
             if args.player_ooc:
                 payload["player_ooc"] = args.player_ooc

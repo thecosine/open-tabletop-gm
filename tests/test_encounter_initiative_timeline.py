@@ -115,7 +115,10 @@ class EncounterInitiativeTimelineTests(unittest.TestCase):
         )
         self.assertNotIn("turn_order: {order", projection)
         self.assertNotIn("const order = Object.entries(combatants)", projection)
-        self.assertIn("turnUpdate.current = active ? active.display_name : null", projection)
+        self.assertIn("receipt.event_type === 'start_turn'", projection)
+        self.assertIn("receipt.event_type === 'next_round'", projection)
+        self.assertNotIn("receipt.event_type === 'attack'", projection)
+        self.assertNotIn("receipt.event_type === 'end_turn'", projection)
 
     def test_authoritative_combat_schema_has_no_display_turn_order_field(self):
         schema = AUTHORITY.split("required = {", 1)[1].split("}", 1)[0]

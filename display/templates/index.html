@@ -10533,10 +10533,10 @@ function _renderCombatProjection(receipt) {
     }));
   const update = {encounter_actors: encounter};
   const turnUpdate = {};
-  if (Object.prototype.hasOwnProperty.call(projection, 'active_turn')) {
+  if (receipt.event_type === 'start_turn' && Object.prototype.hasOwnProperty.call(projection, 'active_turn')) {
     turnUpdate.current = active ? active.display_name : null;
   }
-  if (Number.isInteger(projection.round)) turnUpdate.round = projection.round;
+  if (receipt.event_type === 'next_round' && Number.isInteger(projection.round)) turnUpdate.round = projection.round;
   if (Object.keys(turnUpdate).length) update.turn_order = turnUpdate;
   updateStats(update);
   _combatProjectionOwnsEncounter = true;
