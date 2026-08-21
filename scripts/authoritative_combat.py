@@ -2194,6 +2194,7 @@ def lifecycle_transaction(
                 state["pact_runtime"][active_actor] = pact_runtime.reset_runtime_boundary(
                     state["pact_runtime"][active_actor], "end_turn", state["active_turn"]["turn_id"]
                 )
+            result["actor_id"] = active_actor
             state["active_turn"] = None
         elif event_type == "next_round":
             if state["active_turn"] is not None:
@@ -2753,7 +2754,9 @@ def read_display_projection(store_path: Path) -> dict[str, Any]:
     expected_projection["combat_revision"] = receipt["combat_revision"]
     if receipt["projection"] != expected_projection:
         raise DestinationConflictError("combat display canonical payload conflict")
-    return copy.deepcopy(receipt)
+    result = copy.deepcopy(receipt)
+    result["event_type"] = latest["event_type"]
+    return result
 
 
 def resume_rotation(

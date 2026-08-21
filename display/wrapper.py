@@ -41,6 +41,7 @@ import os
 import pathlib
 import re
 import select
+import secrets
 import shlex
 import signal
 import subprocess
@@ -91,15 +92,16 @@ def _read_token() -> str:
         return ""
 
 
-def _notify_consumed() -> None:
+def _notify_consumed(turn_id: str) -> None:
     """Tell the display server the queue was injected — clears the Queued indicator."""
     try:
         token = _read_token()
+        body = json.dumps({"turn_id": turn_id}).encode("utf-8")
         req = urllib.request.Request(
             f"{DISPLAY_URL}/queue/consumed",
-            data=b"",
+            data=body,
             method="POST",
-            headers={"X-DND-Token": token},
+            headers={"Content-Type": "application/json", "X-DND-Token": token},
         )
         urllib.request.urlopen(req, timeout=1, context=_SSL_CTX)
     except Exception:
@@ -220,7 +222,7 @@ def _audit(text: str) -> None:
         pass
 
 
-def _format_injection(sanitized: str) -> str:
+def _format_injection(sanitized: str, turn_id: str | None = None) -> str:
     """Frame contiguous action/OOC/META entries without changing their text."""
     blocks: list[tuple[str, list[str]]] = []
     for entry in json.loads(sanitized):
@@ -240,10 +242,11 @@ def _format_injection(sanitized: str) -> str:
         "ooc": "[PLAYER OOC — answer directly; send browser reply with send.py --gm-ooc]",
         "meta": "[PLAYER META — campaign management; send browser reply with send.py --gm-meta]",
     }
+    marker = f"\n[[OTGM_TURN:{turn_id}]]" if turn_id else ""
     return "\n" + "\n".join(
         f"{headers[kind]}:\n" + "\n".join(lines)
         for kind, lines in blocks
-    )
+    ) + marker
 
 
 def _inject_queue(master_fd: int) -> None:
@@ -272,7 +275,8 @@ def _inject_queue(master_fd: int) -> None:
     if not sanitized:
         return
 
-    body = _format_injection(sanitized)
+    turn_id = secrets.token_hex(16)
+    body = _format_injection(sanitized, turn_id)
     _audit(sanitized)
 
     try:
@@ -283,7 +287,7 @@ def _inject_queue(master_fd: int) -> None:
     except OSError:
         pass
     else:
-        _notify_consumed()
+        _notify_consumed(turn_id)
 
 
 def _check_trigger(master_fd: int) -> None:
@@ -310,7 +314,8 @@ def _check_trigger(master_fd: int) -> None:
     # Write text then Enter as two separate calls with a brief pause.
     # This mirrors how a human types text then presses Enter.
     # \r (0x0D) is the Enter signal in raw PTY mode.
-    body = _format_injection(sanitized)
+    turn_id = secrets.token_hex(16)
+    body = _format_injection(sanitized, turn_id)
     _audit(sanitized)
 
     try:
@@ -320,7 +325,7 @@ def _check_trigger(master_fd: int) -> None:
     except OSError:
         pass
     else:
-        _notify_consumed()
+        _notify_consumed(turn_id)
 
 
 # ─── PTY helpers ─────────────────────────────────────────────────────────────

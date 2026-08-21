@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -14,9 +15,20 @@ from unittest import mock
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+DISPLAY = REPO / "display"
 
 from scripts import authoritative_combat as tx  # noqa: E402
 from scripts import combat_ingress as ingress  # noqa: E402
+
+
+def _load_display_app():
+    sys.path.insert(0, str(DISPLAY))
+    spec = importlib.util.spec_from_file_location(
+        "authoritative_identity_display_app", DISPLAY / "gm-display-app.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class AuthoritativeCombatTransactionTests(unittest.TestCase):
@@ -268,6 +280,34 @@ class AuthoritativeCombatTransactionTests(unittest.TestCase):
 
     def end_turn(self, request_id="lifecycle-end-0001"):
         return tx.lifecycle_transaction(self.store, request_id, self.revision(), "end_turn", self.actor)
+
+    def test_display_identity_uses_real_authoritative_combatant_record(self):
+        state = self.current()
+        self.assertNotIn("display_name", state["actors"][self.actor])
+        state["combatants"][self.actor]["display_name"] = "Mythlon Bladesinger"
+        tx.atomic_write(self.store, state)
+        ended = self.end_turn("display-identity-end-turn")
+
+        display = _load_display_app()
+        display.STATS_FILE = str(self.root / "display-stats.json")
+        display._current_stats = {
+            "turn_order": {
+                "order": ["Mythlon Bladesinger", "Target"],
+                "current": "Mythlon Bladesinger",
+                "round": 1,
+            },
+        }
+        with mock.patch.dict(os.environ, {"GM_CAMPAIGN_ROOT": str(self.repo)}), mock.patch.object(
+            display, "_broadcast",
+        ):
+            identities = display._authoritative_actor_names(
+                "test-campaign", self.actor, ended["event_id"],
+            )
+            advanced = display._advance_authoritative_turn(ended["event_id"], identities)
+
+        self.assertEqual(identities, {"mythlon", "Mythlon Bladesinger"})
+        self.assertEqual(advanced["state"], "advanced")
+        self.assertEqual(display._current_stats["turn_order"]["current"], "Target")
 
     def test_pact_attack_automatically_enters_transaction_and_loads_mandatory_features(self):
         result = self.attack()
