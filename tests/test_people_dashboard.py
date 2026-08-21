@@ -254,10 +254,16 @@ class PeopleFrontendContractTests(unittest.TestCase):
         self.assertNotIn("_peopleCache.push", update)
 
     def test_people_state_is_cleared_with_display(self):
-        self.assertIn("_peopleCache = [];", self.source)
-        self.assertIn("_peopleMeta = {};", self.source)
-        clear_block = self.source.split("if (payload.clear)", 1)[1].split("if (payload.replay_batch)", 1)[0]
-        self.assertIn("_clearCampaignClientState()", clear_block)
+        clear = self._function("_clearCampaignClientState()", "connect()")
+        self.assertIn("_peopleCache = [];", clear)
+        self.assertIn("_peopleMeta = {};", clear)
+        handler = self.source.split("evtSource.onmessage = (e) => {", 1)[1].split(
+            "evtSource.onerror", 1
+        )[0]
+        self.assertRegex(
+            handler,
+            r"if\s*\(payload\.clear(?:\s*&&[^)]*)?\)\s*\{\s*_clearCampaignClientState\(\)",
+        )
 
     def test_backend_refreshes_people_at_startup_and_campaign_registration(self):
         backend = (DISPLAY / "gm-display-app.py").read_text(encoding="utf-8")
