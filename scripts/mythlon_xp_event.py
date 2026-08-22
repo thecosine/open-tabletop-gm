@@ -354,7 +354,27 @@ def resolve_event(args: argparse.Namespace) -> int:
             print(result.stderr.strip() or result.stdout.strip(), file=sys.stderr)
             return result.returncode
 
-        _, total, next_threshold, level_up = engine_snapshot()
+        updated_state, total, next_threshold, level_up = engine_snapshot()
+        applied = engine_event(updated_state, args.event_id)
+        linked_applied = [
+            (source, engine_event(updated_state, source["event_id"]))
+            for source in linked
+        ]
+        if (
+            applied is None
+            or applied[0].get("event_id") != args.event_id
+            or applied[1] != award_amount
+            or any(
+                prior is None or prior[1] != int(source["amount"])
+                for source, prior in linked_applied
+            )
+        ):
+            print(
+                "Award blocked: progression engine returned success without persisting "
+                "the expected event identities.",
+                file=sys.stderr,
+            )
+            return 3
         now = dt.datetime.now().isoformat(timespec="seconds")
         event.update({
             "resolved": True,

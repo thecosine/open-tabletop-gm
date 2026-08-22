@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import shutil
+import subprocess
 import tempfile
 import types
 import unittest
@@ -14,6 +15,10 @@ from unittest import mock
 
 REPO = Path(__file__).resolve().parent.parent
 ENGINE_PATH = Path("/home/cosine101/.config/opencode/mythlon-edition/engine/mythlon_progression.py")
+ENGINE_DIR = ENGINE_PATH.parent
+RUNTIME_PATH = ENGINE_DIR / "approved_mythlon_progression_runtime.py"
+IMPLEMENTATION_PATH = ENGINE_DIR / "approved_mythlon_progression.py"
+INITIAL_STATE_PATH = ENGINE_DIR / "initial_character_state.json"
 
 
 def load_module(path: Path, name: str):
@@ -24,34 +29,64 @@ def load_module(path: Path, name: str):
     return module
 
 
+def isolated_engine_paths(root: Path) -> dict[str, Path]:
+    return {
+        "PACKAGE_DIR": root,
+        "STATE_PATH": root / "character_state.json",
+        "INITIAL_STATE_PATH": INITIAL_STATE_PATH,
+        "TEMPLATE_PATH": INITIAL_STATE_PATH,
+        "PROGRESSION_PATH": ENGINE_DIR / "progression.json",
+        "TRUE_STATUS": root / "True_Status.md",
+        "MASKED_STATUS": root / "Masked_Status.md",
+        "LOCK_PATH": root / "character_state.lock",
+        "BACKUP_DIR": root / "backups",
+    }
+
+
+def write_status_templates(paths: dict[str, Path]) -> None:
+    paths["TRUE_STATUS"].write_text(
+        "\n".join([
+            "- Effective Level: 1", "- XP: 0", "- Rogue: 1 (Arcane Trickster)",
+            "- Warlock: 1 (Hexblade)", "- Wizard: 1 (Bladesinger)",
+            "- Proficiency Bonus: +2", "- HP: 1/1", "",
+        ])
+    )
+    paths["MASKED_STATUS"].write_text(
+        "\n".join(["- Level: 1", "- Proficiency Bonus: +2", "- HP: 1/1", ""])
+    )
+
+
 class ProgressionEventIdTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.engine = load_module(ENGINE_PATH, "mythlon_progression_test")
-        self.engine.DEFAULT_DATA_DIR = self.root
-        self.engine.STATE_PATH = self.root / "character_state.json"
-        self.engine.BACKUP_DIR = self.root / "backups"
-        self.engine.TRUE_STATUS = self.root / "True_Status.md"
-        self.engine.MASKED_STATUS = self.root / "Masked_Status.md"
-        self.engine.LOCK_PATH = self.root / "character_state.lock"
-        template = json.loads(self.engine.TEMPLATE_PATH.read_text())
+        self.engine = load_module(RUNTIME_PATH, "mythlon_progression_runtime_test")
+        self.paths = isolated_engine_paths(self.root)
+        template = json.loads(INITIAL_STATE_PATH.read_text())
         template["character"]["xp"] = 0
-        self.engine.save_json(self.engine.STATE_PATH, template)
-        self.rules = self.engine.load_json(self.engine.RULES_PATH)
+        self.paths["STATE_PATH"].write_text(json.dumps(template))
+        write_status_templates(self.paths)
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def award(self, amount=100, event_id="combat-test-room-001", linked=None):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            return self.engine.award_xp(
-                amount, event_id, "Test Room", "combat", "test-campaign",
-                linked or [], self.rules,
+            argv = [
+                "award-xp", str(amount), "--event-id", event_id,
+                "--event-name", "Test Room", "--category", "combat",
+                "--campaign", "test-campaign",
+            ]
+            for source in linked or []:
+                argv.extend(["--linked-event", f'{source["event_id"]}:{source["amount"]}'])
+            return self.engine.main(
+                implementation_path=IMPLEMENTATION_PATH,
+                paths=self.paths,
+                argv=argv,
             )
 
     def state(self):
-        return json.loads(self.engine.STATE_PATH.read_text())
+        return json.loads(self.paths["STATE_PATH"].read_text())
 
     def test_event_id_awards_exactly_once(self):
         self.assertEqual(self.award(), 0)
@@ -85,12 +120,30 @@ class DeferredLedgerTests(unittest.TestCase):
         self.env.start()
         self.mod.ENGINE_STATE = self.root / ".local/share/open-tabletop-gm/mythlon-engine/character_state.json"
         self.mod.ENGINE_STATE.parent.mkdir(parents=True)
-        shutil.copy2(
-            Path("/home/cosine101/.config/opencode/mythlon-edition/engine/initial_character_state.json"),
-            self.mod.ENGINE_STATE,
-        )
+        shutil.copy2(INITIAL_STATE_PATH, self.mod.ENGINE_STATE)
+        self.runtime = load_module(RUNTIME_PATH, "mythlon_xp_resolver_runtime_test")
+        self.engine_paths = isolated_engine_paths(self.mod.ENGINE_STATE.parent)
+        write_status_templates(self.engine_paths)
+        real_run = subprocess.run
+
+        def isolated_engine_run(command, *args, **kwargs):
+            if len(command) > 1 and Path(command[1]) == self.mod.ENGINE:
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    returncode = self.runtime.main(
+                        implementation_path=IMPLEMENTATION_PATH,
+                        paths=self.engine_paths,
+                        argv=command[2:],
+                    )
+                return subprocess.CompletedProcess(command, returncode, stdout.getvalue(), stderr.getvalue())
+            return real_run(command, *args, **kwargs)
+
+        self.run_patch = mock.patch.object(self.mod.subprocess, "run", side_effect=isolated_engine_run)
+        self.run_patch.start()
 
     def tearDown(self):
+        self.run_patch.stop()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -175,6 +228,18 @@ class DeferredLedgerTests(unittest.TestCase):
         source_record = self.mod.find_event(ledger, source.event_id)
         self.assertEqual(source_record["xp_status"], "awarded")
         self.assertEqual(source_record["awarded_through"], target.event_id)
+
+    def test_engine_success_without_persisted_event_is_rejected(self):
+        target = self.args(amount=100)
+        self.assertEqual(self.mod.register_event(target), 0)
+        with mock.patch.object(self.runtime, "main", return_value=0), mock.patch.object(
+            self.mod, "_browser_event"
+        ), mock.patch.object(self.mod, "_sync_campaign"):
+            self.assertEqual(self.mod.resolve_event(target), 3)
+
+        event = self.mod.find_event(self.mod.load_ledger(target.campaign), target.event_id)
+        self.assertFalse(event["resolved"])
+        self.assertEqual(json.loads(self.mod.ENGINE_STATE.read_text())["character"]["xp"], 0)
 
 
 if __name__ == "__main__":
