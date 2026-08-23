@@ -124,13 +124,7 @@ class FreshStreamBootstrapTests(unittest.TestCase):
             )
 
         stats_file = root / "stats.json"
-        stats_file.write_text(json.dumps({
-            "campaign": "alpha",
-            "players": [
-                {"name": "Aria", "side": "party", "class": "Wizard", "level": 3},
-                {"name": "Bram", "side": "party", "class": "Fighter", "level": 3},
-            ],
-        }), encoding="utf-8")
+        stats_file.write_text(json.dumps({"campaign": "alpha", "players": []}), encoding="utf-8")
         self.mod.STATS_FILE = str(stats_file)
         self.mod._current_stats = {}
         self.mod._load_stats()  # Flask process startup restores its durable display state.
@@ -149,6 +143,9 @@ class FreshStreamBootstrapTests(unittest.TestCase):
             [player["name"] for player in self.mod._current_stats["players"]],
             ["Aria", "Bram"],
         )
+        self.assertTrue(all(
+            player["side"] == "party" for player in self.mod._current_stats["players"]
+        ))
 
         with mock.patch.object(self.mod, "_find_campaign", return_value=campaign):
             stream = self.client.get("/stream", buffered=False)
@@ -161,6 +158,36 @@ class FreshStreamBootstrapTests(unittest.TestCase):
             [player["name"] for player in bootstrap["stats"]["players"]],
             ["Aria", "Bram"],
         )
+        known = {player["name"] for player in bootstrap["stats"]["players"]}
+        self.assertTrue(self.mod._char_ok("Aria", known))
+        self.assertTrue(self.mod._char_ok("Bram", known))
+
+    def test_same_campaign_registration_preserves_nonempty_durable_player_records(self):
+        root = pathlib.Path(self.temp.name)
+        campaign = root / "alpha"
+        characters = campaign / "characters"
+        characters.mkdir(parents=True)
+        (campaign / "state.md").write_text("## Active Quests\n", encoding="utf-8")
+        (characters / "Aria.md").write_text(
+            "# Aria\n\n## Identity\n- **Class:** Wizard 3\n", encoding="utf-8",
+        )
+        durable = [{
+            "name": "Aria", "side": "party", "class": "Wizard", "level": 3,
+            "hp": {"current": 7, "max": 18}, "portrait": "/static/portraits/party/aria.png",
+        }]
+        stats_file = root / "stats.json"
+        stats_file.write_text(
+            json.dumps({"campaign": "alpha", "players": durable}), encoding="utf-8",
+        )
+        self.mod.STATS_FILE = str(stats_file)
+        self.mod._current_stats = {}
+        self.mod._load_stats()
+
+        with mock.patch.object(self.mod, "_find_campaign", return_value=campaign):
+            response = self.client.post("/chunk", json={"campaign": "alpha"})
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.mod._current_stats["players"], durable)
 
 
 class BrowserRefreshContractTests(unittest.TestCase):

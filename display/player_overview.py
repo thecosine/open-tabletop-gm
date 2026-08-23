@@ -446,6 +446,29 @@ def _character_file(campaign_dir: Path, player_name: str) -> Path | None:
     return None
 
 
+def discover_campaign_players(campaign_dir: str | Path) -> list[dict[str, str]]:
+    """Build the minimal persistent display roster from canonical character sheets."""
+    character_dir = Path(campaign_dir) / "characters"
+    if not character_dir.is_dir():
+        return []
+    players: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for path in sorted(character_dir.glob("*.md"), key=lambda item: item.name.casefold()):
+        try:
+            first_line = path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        except (OSError, IndexError):
+            continue
+        if not first_line.startswith("# "):
+            continue
+        name = first_line[2:].strip()
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        players.append({"name": name, "side": "party"})
+    return players
+
+
 def project_player_overview(campaign_dir: str | Path, player_name: str) -> dict[str, Any]:
     """Return one player's optional public Overview projection, or an empty dict."""
     try:
