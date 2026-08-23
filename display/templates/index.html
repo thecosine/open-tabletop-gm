@@ -9885,6 +9885,7 @@ _inputPanelHdr.addEventListener('click', () => {
 // ── Build character tabs from stats players array ─────────────────
 function _buildCharTabs(players) {
   const names = ['Everybody', ...(players || []).map(p => p.name).filter(Boolean)];
+  if (!names.includes(_selectedChar)) _selectedChar = 'Everybody';
   _charTabs.innerHTML = '';
   names.forEach(name => {
     const btn = document.createElement('button');
@@ -10623,10 +10624,12 @@ function connect() {
       }
       updateStats(payload.stats);
       const sidebarPlayers = (payload.stats.players || []).filter(_isPersistentSidebarActor);
-      if (sidebarPlayers.length > 0) {
-        _sidebarBtn.classList.add('visible');
+      if (Object.prototype.hasOwnProperty.call(payload.stats, 'players')) {
         _buildCharTabs(sidebarPlayers);
         _modeSwitcherCachePlayers(sidebarPlayers);
+      }
+      if (sidebarPlayers.length > 0) {
+        _sidebarBtn.classList.add('visible');
       }
       if (payload.stats.world_time) {
         updateWorldClock(payload.stats.world_time);

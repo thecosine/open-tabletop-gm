@@ -2165,10 +2165,17 @@ def chunk():
                 recovery = None
 
                 next_generation = _campaign_generation + 1
+                prior_stats = snapshot["stats"]
+                prior_stats_campaign = str(prior_stats.get("campaign") or "").strip()
+                restored_players = []
+                if previous_campaign == campaign and prior_stats_campaign in ("", campaign):
+                    prior_players = prior_stats.get("players")
+                    if isinstance(prior_players, list):
+                        restored_players = copy.deepcopy(prior_players)
                 next_stats = {
                     "campaign": campaign,
                     "campaign_generation": next_generation,
-                    "players": [],
+                    "players": restored_players,
                     "people": list(prepared["people"].get("people", [])),
                     "people_meta": dict(prepared["people"].get("people_meta", {})),
                     "quests": list(prepared["quests"].get("quests", [])),

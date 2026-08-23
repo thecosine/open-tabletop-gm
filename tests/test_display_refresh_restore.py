@@ -111,6 +111,57 @@ class FreshStreamBootstrapTests(unittest.TestCase):
             self.assertEqual(payload["campaign"], "alpha")
         self.assertEqual(stats["combat_campaign"], "alpha")
 
+    def test_existing_campaign_registration_restores_players_and_input_targets(self):
+        root = pathlib.Path(self.temp.name)
+        campaign = root / "alpha"
+        characters = campaign / "characters"
+        characters.mkdir(parents=True)
+        (campaign / "state.md").write_text("## Active Quests\n", encoding="utf-8")
+        for name, character_class in (("Aria", "Wizard 3"), ("Bram", "Fighter 3")):
+            (characters / f"{name}.md").write_text(
+                f"# {name}\n\n## Identity\n- **Class:** {character_class}\n",
+                encoding="utf-8",
+            )
+
+        stats_file = root / "stats.json"
+        stats_file.write_text(json.dumps({
+            "campaign": "alpha",
+            "players": [
+                {"name": "Aria", "side": "party", "class": "Wizard", "level": 3},
+                {"name": "Bram", "side": "party", "class": "Fighter", "level": 3},
+            ],
+        }), encoding="utf-8")
+        self.mod.STATS_FILE = str(stats_file)
+        self.mod._current_stats = {}
+        self.mod._load_stats()  # Flask process startup restores its durable display state.
+
+        broadcasts = []
+        with mock.patch.object(self.mod, "_find_campaign", return_value=campaign), \
+             mock.patch.object(self.mod, "_broadcast", side_effect=broadcasts.append):
+            response = self.client.post("/chunk", json={"campaign": "alpha"})
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            [player["name"] for player in broadcasts[-1]["stats"]["players"]],
+            ["Aria", "Bram"],
+        )
+        self.assertEqual(
+            [player["name"] for player in self.mod._current_stats["players"]],
+            ["Aria", "Bram"],
+        )
+
+        with mock.patch.object(self.mod, "_find_campaign", return_value=campaign):
+            stream = self.client.get("/stream", buffered=False)
+            try:
+                messages = [_decode_sse(next(stream.response)) for _ in range(2)]
+            finally:
+                stream.close()
+        bootstrap = next(payload for payload in messages if "stats" in payload)
+        self.assertEqual(
+            [player["name"] for player in bootstrap["stats"]["players"]],
+            ["Aria", "Bram"],
+        )
+
 
 class BrowserRefreshContractTests(unittest.TestCase):
     def test_campaign_reset_clears_feed_synchronously_before_replay(self):
@@ -132,6 +183,17 @@ class BrowserRefreshContractTests(unittest.TestCase):
         self.assertIn("document.getElementById('sb-turn-list')", clear)
         self.assertIn("for (const key of Object.keys(_prevHp)) delete _prevHp[key]", clear)
         self.assertIn("_renderEncounterActors([], null)", clear)
+
+    def test_player_snapshot_always_rebuilds_party_input_targets(self):
+        tabs = _extract_js_function(SOURCE, "function _buildCharTabs(players)")
+        self.assertIn("if (!names.includes(_selectedChar)) _selectedChar = 'Everybody'", tabs)
+        handler = SOURCE.split("evtSource.onmessage = (e) => {", 1)[1].split("evtSource.onerror", 1)[0]
+        player_snapshot = handler.split("const sidebarPlayers =", 1)[1].split(
+            "if (payload.stats.world_time)", 1
+        )[0]
+        self.assertIn("hasOwnProperty.call(payload.stats, 'players')", player_snapshot)
+        self.assertIn("_buildCharTabs(sidebarPlayers)", player_snapshot)
+        self.assertIn("_modeSwitcherCachePlayers(sidebarPlayers)", player_snapshot)
 
     def test_idle_combat_projection_does_not_erase_display_session_encounter(self):
         projection = SOURCE.split("projection: async () => {", 1)[1].split("authorizeDevice:", 1)[0]
