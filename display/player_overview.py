@@ -455,8 +455,12 @@ def discover_campaign_players(campaign_dir: str | Path) -> list[dict[str, str]]:
     seen: set[str] = set()
     for path in sorted(character_dir.glob("*.md"), key=lambda item: item.name.casefold()):
         try:
-            first_line = path.read_text(encoding="utf-8", errors="replace").splitlines()[0]
-        except (OSError, IndexError):
+            first_line = next(
+                line
+                for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+                if line.strip()
+            )
+        except (OSError, StopIteration):
             continue
         if not first_line.startswith("# "):
             continue
