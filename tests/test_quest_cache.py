@@ -259,6 +259,11 @@ class QuestDisplayServerTests(unittest.TestCase):
         beta_cache = self.campaigns["beta"] / "display_quests.json"
         beta_cache.write_text('{"sentinel":"unchanged"}', encoding="utf-8")
         before = beta_cache.read_bytes()
+        beta_characters = self.campaigns["beta"] / "characters"
+        beta_characters.mkdir()
+        (beta_characters / "Beta-Hero.md").write_text(
+            "# Beta Hero\n\n## Identity\n- **Class:** Ranger 2\n", encoding="utf-8",
+        )
         prepared = self.mod._prepare_campaign_transition("beta", self.campaigns["beta"])
         self.assertEqual(beta_cache.read_bytes(), before)
         self.assertEqual(prepared["text_log"], [])
@@ -275,7 +280,10 @@ class QuestDisplayServerTests(unittest.TestCase):
         self.mod._tail_buffer.append({"text": "prior tail", "_camp": "alpha"})
         response = self._post("/chunk", {"campaign": "beta"})
         self.assertEqual(response.status_code, 204)
-        self.assertEqual(self.mod._current_stats["players"], [])
+        self.assertEqual(
+            self.mod._current_stats["players"],
+            [{"name": "Beta Hero", "side": "party"}],
+        )
         self.assertNotIn("Prior", json.dumps(self.mod._current_stats))
         self.assertEqual(list(self.mod._text_log), [])
         self.assertEqual(list(self.mod._tail_buffer), [])

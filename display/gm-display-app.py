@@ -87,7 +87,10 @@ from people_cache import (
     build_snapshot as _build_people_snapshot,
 )
 from portrait_paths import normalize_player_records as _normalize_player_records
-from player_overview import project_players as _project_overview_players
+from player_overview import (
+    discover_campaign_players as _discover_campaign_players,
+    project_players as _project_overview_players,
+)
 from player_inventory import project_players as _project_inventory_players
 from player_features import project_players as _project_feature_players
 from display_config import resolve_display_port as _resolve_display_port
@@ -1780,7 +1783,10 @@ def _prepare_campaign_transition(campaign: str, campaign_directory: pathlib.Path
     quest_snapshot = _normalize_quest_snapshot(
         _parse_active_quests(state_text), campaign, previous=previous_quests,
     )
-    people_snapshot = _build_people_snapshot(campaign_directory, campaign, [])
+    players = _discover_campaign_players(campaign_directory)
+    people_snapshot = _build_people_snapshot(
+        campaign_directory, campaign, [player["name"] for player in players],
+    )
 
     def read_entries(path: pathlib.Path, limit: int, *, stamped: bool = False) -> list[dict]:
         try:
@@ -1805,6 +1811,7 @@ def _prepare_campaign_transition(campaign: str, campaign_directory: pathlib.Path
     except Exception:
         system_version = ""
     return {
+        "players": players,
         "quests": quest_snapshot,
         "people": people_snapshot,
         "system_version": system_version,
@@ -2170,8 +2177,10 @@ def chunk():
                 restored_players = []
                 if previous_campaign == campaign and prior_stats_campaign in ("", campaign):
                     prior_players = prior_stats.get("players")
-                    if isinstance(prior_players, list):
+                    if isinstance(prior_players, list) and prior_players:
                         restored_players = copy.deepcopy(prior_players)
+                if not restored_players:
+                    restored_players = copy.deepcopy(prepared["players"])
                 next_stats = {
                     "campaign": campaign,
                     "campaign_generation": next_generation,
