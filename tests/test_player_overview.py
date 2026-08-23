@@ -303,6 +303,56 @@ class CanonicalProjectionTests(unittest.TestCase):
         self.assertIsNone(result["overview"])
 
 
+class CampaignPlayerDiscoveryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.overview = _load_module(DISPLAY / "player_overview.py", "player_discovery_under_test")
+
+    def _discover(self, sheets: dict[str, str]) -> list[dict[str, str]]:
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = pathlib.Path(tmp)
+            characters = campaign / "characters"
+            characters.mkdir()
+            for filename, text in sheets.items():
+                (characters / filename).write_text(text, encoding="utf-8")
+            return self.overview.discover_campaign_players(campaign)
+
+    def test_discovers_sheet_with_h1_on_physical_first_line(self):
+        self.assertEqual(
+            self._discover({"Aria.md": "# Aria\n\n## Identity\n"}),
+            [{"name": "Aria", "side": "party"}],
+        )
+
+    def test_discovers_sheet_with_leading_blank_lines_before_h1(self):
+        self.assertEqual(
+            self._discover({"Bram.md": "\n   \n\n# Bram\n\n## Identity\n"}),
+            [{"name": "Bram", "side": "party"}],
+        )
+
+    def test_rejects_markdown_without_first_nonempty_canonical_h1(self):
+        self.assertEqual(
+            self._discover({
+                "prose.md": "Campaign notes\n\n# Not A Character\n",
+                "subheading.md": "\n## Notes\n\n# Also Not A Character\n",
+                "empty.md": "\n   \n",
+            }),
+            [],
+        )
+
+    def test_duplicate_character_names_remain_deduplicated_in_file_order(self):
+        self.assertEqual(
+            self._discover({
+                "03-second-copy.md": "\n# aria\n",
+                "02-first-copy.md": "# Aria\n",
+                "01-bram.md": "# Bram\n",
+            }),
+            [
+                {"name": "Bram", "side": "party"},
+                {"name": "Aria", "side": "party"},
+            ],
+        )
+
+
 class LifecycleProjectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
