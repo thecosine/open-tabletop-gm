@@ -34,6 +34,9 @@ Usage:
     # Short inline string
     echo "Short message" | python3 send.py
 
+    # Mark the last, complete GM response for an active browser Party Input turn.
+    echo "Complete final narration" | python3 send.py --turn-final
+
     # State changes bundled with narration (Option B)
     python3 send.py --stat-hp "Mira:12:17" --stat-slot-use "Aldric:1" << 'DNDEND'
     The goblin's blade finds a gap in her armor for 5 damage...
@@ -401,6 +404,8 @@ def main() -> None:
         help="Send an exact player campaign-management message using the META channel")
     parser.add_argument("--gm-meta", action="store_true",
         help="Send the GM's campaign-management response using the META channel")
+    parser.add_argument("--turn-final", action="store_true",
+        help="Mark this prose as the intentional final browser response for the active Party Input turn")
     timestamp_group = parser.add_mutually_exclusive_group()
     timestamp_group.add_argument("--campaign-timestamp", metavar="STAMP",
         help="Preserve a replay timestamp in [YYYY-MM-DD HH:MM] form")
@@ -475,6 +480,11 @@ def main() -> None:
              "Surfaces a clear stderr line on mismatch — use during dev/debug.")
 
     args = parser.parse_args()
+
+    if args.turn_final and any((
+        args.player_ooc, args.player_meta, args.player, args.dice, args.action,
+    )):
+        parser.error("--turn-final requires GM prose, NPC dialogue, tutor, GM OOC, or GM META output")
 
     def attach_timestamp(payload: dict) -> None:
         if args.campaign_timestamp is not None:
@@ -676,6 +686,7 @@ def main() -> None:
     turn_response = not any((
         args.player_ooc, args.player_meta, args.player, args.dice, args.action,
     ))
+    turn_response_marker: "bool | str" = "final" if args.turn_final else True
     # ── Campaign registration ─────────────────────────────────────────────────
     # Sent with or without narration text. The server writes .campaign and reloads
     # the per-campaign text log so late-connecting browsers see the right session tail.
@@ -685,7 +696,7 @@ def main() -> None:
         if text.strip():
             payload["text"] = text
             if turn_response:
-                payload["turn_response"] = True
+                payload["turn_response"] = turn_response_marker
             # Attach any message-type flags
             if args.player_ooc:
                 payload["player_ooc"] = args.player_ooc
@@ -723,7 +734,7 @@ def main() -> None:
         for chunk in chunks:
             payload = {"text": chunk}
             if turn_response:
-                payload["turn_response"] = True
+                payload["turn_response"] = turn_response_marker
             attach_timestamp(payload)
             if args.player_ooc:
                 payload["player_ooc"] = args.player_ooc

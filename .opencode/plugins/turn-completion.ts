@@ -32,7 +32,18 @@ function token(worktree: string): string {
 }
 
 function assistantForTurn(messages: SessionMessage[], userMessageID: string): SessionMessage | undefined {
-  return messages.find((message) => message.info.role === "assistant" && message.info.parentID === userMessageID)
+  return messages
+    .filter((message) => (
+      message.info.role === "assistant"
+      && message.info.parentID === userMessageID
+      && Boolean(message.info.time?.completed)
+      && !message.info.summary
+      && !message.info.error
+      && !message.parts.some((part) => part.type === "tool")
+      && Boolean(publicationText(message))
+    ))
+    .sort((left, right) => (left.info.time?.completed || 0) - (right.info.time?.completed || 0))
+    .at(-1)
 }
 
 function publicationText(message: SessionMessage): string {
@@ -66,8 +77,9 @@ const TurnCompletionPlugin: Plugin = async ({ client, directory, worktree }) => 
   }
 
   async function claim(turnID: string, sessionID: string, userMessageID: string): Promise<void> {
-    turnMessages.set(sessionID, { turnID, userMessageID })
-    await bind(turnID, sessionID, userMessageID)
+    if (await bind(turnID, sessionID, userMessageID)) {
+      turnMessages.set(sessionID, { turnID, userMessageID })
+    }
   }
 
   async function publish(sessionID: string, userMessageID: string): Promise<boolean> {
@@ -88,7 +100,10 @@ const TurnCompletionPlugin: Plugin = async ({ client, directory, worktree }) => 
     )
     if (!user) return false
     const message = assistantForTurn(messages, user.info.id)
-    if (!message || !message.info.time?.completed || message.info.summary || message.info.error) {
+    // OpenCode can emit session.idle between a tool-bearing assistant phase and
+    // the later terminal prose. Keep the claim so the next idle can complete it.
+    if (!message) return false
+    if (!message.info.time?.completed || message.info.summary || message.info.error) {
       const failed = await fetch(`${base}/turn-completion/fail`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers() },

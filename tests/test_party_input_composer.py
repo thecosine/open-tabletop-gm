@@ -1168,8 +1168,12 @@ class DisplaySendTests(unittest.TestCase):
                 self.send.main()
             self.assertEqual(posted[0]["campaign_timestamp"], expected)
 
-    def test_gm_prose_is_marked_as_a_turn_response_but_player_echo_is_not(self):
-        for args, expected in (([], True), (["--action", "Player Action"], False)):
+    def test_gm_prose_is_provisional_unless_explicitly_final(self):
+        for args, expected in (
+            ([], True),
+            (["--turn-final"], "final"),
+            (["--action", "Player Action"], False),
+        ):
             posted = []
             with mock.patch.object(sys, "argv", ["send.py", *args]), mock.patch.object(
                 sys, "stdin", io.StringIO("Visible text")
