@@ -1449,7 +1449,7 @@ def _set_turn_pending(value: dict | None) -> None:
 
 
 def _mark_pending_browser_publication() -> None:
-    """Persist that explicit send.py prose satisfied the current browser turn."""
+    """Persist that explicit final send.py prose satisfied the browser turn."""
     with _turn_completion_lock:
         pending = dict(_turn_pending or {})
         if (
@@ -2337,7 +2337,7 @@ def chunk():
     is_player_meta = bool(data.get("player_meta"))
     is_gm_meta     = bool(data.get("gm_meta"))
     is_sideband = is_player_ooc or is_gm_ooc or is_player_meta or is_gm_meta
-    is_turn_response = data.get("turn_response") is True and not any((
+    is_final_turn_response = data.get("turn_response") == "final" and not any((
         is_action, is_player, is_player_ooc, is_player_meta, is_dice,
     ))
 
@@ -2423,7 +2423,7 @@ def chunk():
 
     _persist_log()
     _persist_tail()
-    if is_turn_response:
+    if is_final_turn_response:
         _mark_pending_browser_publication()
     _broadcast(payload)
     return "", 204
@@ -2494,8 +2494,8 @@ def turn_completion():
         ):
             return "Completion does not match the pending autorun turn", 409
 
-        # Explicit send.py prose is the model-selected browser response. The
-        # persisted marker remains reliable when the bounded replay log rotates.
+        # Only send.py --turn-final is the model-selected browser response.
+        # Provisional prose and structured events never suppress idle fallback.
         explicitly_published = pending.get("browser_published") is True
         record = {
             "session_id": session_id,

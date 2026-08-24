@@ -290,7 +290,7 @@ Aldric — Greatsword: d20+10 = 28 vs AC 14 → HIT — 2d6+5 = 16 slashing dama
 GMEND
 
 # GM narration (bundle all stat changes on the same call):
-python3 <skill-base>/display/send.py \
+python3 <skill-base>/display/send.py --turn-final \
   --stat-hp "Aldric:126:134" \
   --stat-condition-add "Aldric:Frightened" << 'GMEND'
 [full narration text — never summarise or condense]
@@ -302,7 +302,7 @@ python3 <skill-base>/display/send.py --npc "Aldrath" << 'GMEND'
 GMEND
 ```
 
-**ONE bash call per response.** Multiple `send.py` invocations inside a single bash block. Block order: `--player` then `--dice` then narration (with `--stat-*`) then `--npc`.
+**ONE bash call per response.** Multiple `send.py` invocations inside a single bash block. Block order: `--player` then `--dice` then narration (with `--stat-*`) then `--npc`. Put `--turn-final` on the last complete GM prose/NPC call only; earlier prose is provisional.
 
 ---
 

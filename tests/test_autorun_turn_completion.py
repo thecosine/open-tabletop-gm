@@ -133,7 +133,7 @@ class AutorunTurnCompletionTests(unittest.TestCase):
         with mock.patch.object(self.mod, "_broadcast", side_effect=self.broadcasts.append):
             self._consume_and_bind()
             self.client.post("/chunk", json={
-                "text": "Purpose-built send.py prose", "turn_response": True,
+                "text": "Purpose-built send.py prose", "turn_response": "final",
             })
             response = self.client.post("/turn-completion", json=self._completion("Raw OpenCode final prose"))
         self.assertEqual(response.get_json()["status"], "already-published")
@@ -149,7 +149,7 @@ class AutorunTurnCompletionTests(unittest.TestCase):
             # OpenCode emits an assistant preamble, executes a tool, then send.py
             # publishes the actual browser response before session.idle.
             sent = self.client.post("/chunk", json={
-                "text": "No active turn is open.", "turn_response": True,
+                "text": "No active turn is open.", "turn_response": "final",
             })
             persisted_pending = json.loads(pending_file.read_text(encoding="utf-8"))
             completed = self.client.post(
@@ -181,6 +181,57 @@ class AutorunTurnCompletionTests(unittest.TestCase):
             response = self.client.post("/turn-completion", json=self._completion())
         self.assertEqual(response.get_json()["status"], "published")
         self.assertEqual(self.mod._text_log[-1]["text"], "The recovered final GM prose.")
+
+    def test_intermediate_prose_and_xp_do_not_suppress_later_final_narration(self):
+        intermediate = (
+            "The earlier Animal Handling success keeps the shellback from panicking; "
+            "freeing its wedged shell now requires an Athletics check."
+        )
+        final = (
+            "Mythlon succeeds on the Athletics check. The third shellback is freed, "
+            "the miller confirms the sluice works, and Millpond Shellbacks is complete. "
+            "XP +100, total 4875/6500. What does Mythlon do next?"
+        )
+        final_completion = {
+            **self._completion(final),
+            "completion_id": "opencode:session_1:message_final",
+            "message_id": "message_final",
+        }
+
+        with mock.patch.object(self.mod, "_broadcast", side_effect=self.broadcasts.append):
+            self._consume_and_bind()
+            intermediate_response = self.client.post("/chunk", json={
+                "text": intermediate,
+                "turn_response": True,
+            })
+            xp_response = self.client.post("/chunk", json={
+                "xp_award": {
+                    "status": "awarded",
+                    "event_id": "millpond-shellbacks",
+                    "name": "Millpond Shellbacks",
+                    "category": "quest",
+                    "xp": 100,
+                    "total": 4875,
+                },
+            })
+
+            self.assertEqual(intermediate_response.status_code, 204)
+            self.assertEqual(xp_response.status_code, 204)
+            self.assertTrue(self.mod._turn_pending)
+            self.assertFalse(self.mod._turn_pending["browser_published"])
+
+            completed = self.client.post("/turn-completion", json=final_completion)
+            retry = self.client.post("/turn-completion", json=final_completion)
+
+        self.assertEqual(completed.get_json()["status"], "published")
+        self.assertEqual(retry.get_json()["status"], "duplicate")
+        visible = [entry.get("text") for entry in self.mod._text_log if entry.get("text")]
+        self.assertEqual(visible, [intermediate, final])
+        self.assertEqual(
+            [payload.get("text") for payload in self.broadcasts if payload.get("text") == final],
+            [final],
+        )
+        self.assertFalse(self.mod._turn_pending)
 
     def test_completion_endpoint_rejects_authoritative_mutation_fields(self):
         response = self.client.post(
@@ -271,6 +322,17 @@ class AutorunTurnCompletionTests(unittest.TestCase):
 
 
 class CompletionPluginContractTests(unittest.TestCase):
+    def test_plugin_selects_latest_eligible_assistant_for_correlated_turn(self):
+        source = (REPO / ".opencode" / "plugins" / "turn-completion.ts").read_text(encoding="utf-8")
+        function = source.split("function assistantForTurn", 1)[1].split("function publicationText", 1)[0]
+        self.assertIn(".filter(", function)
+        self.assertIn(".at(-1)", function)
+        self.assertIn('part.type === "tool"', function)
+        self.assertNotIn("messages.find(", function)
+
+        publish = source.split("async function publish", 1)[1].split("return {", 1)[0]
+        self.assertIn("if (!message) return false", publish)
+
     def test_plugin_uses_idle_message_identity_and_publication_only_endpoint(self):
         source = (REPO / ".opencode" / "plugins" / "turn-completion.ts").read_text(encoding="utf-8")
         for token in (
@@ -285,6 +347,8 @@ class CompletionPluginContractTests(unittest.TestCase):
             self.assertIn(token, source)
         for forbidden in ("client.session.prompt", "inventory_action", "calendar.py", "mythlon_xp_event"):
             self.assertNotIn(forbidden, source)
+        claim = source.split("async function claim", 1)[1].split("async function publish", 1)[0]
+        self.assertLess(claim.index("await bind"), claim.index("turnMessages.set"))
 
     def test_cli_end_turn_notifies_the_idempotent_display_endpoint(self):
         source = (REPO / "scripts" / "combat.py").read_text(encoding="utf-8")

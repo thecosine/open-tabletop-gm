@@ -254,9 +254,9 @@ python3 display/send.py --npc "NPC Name" << 'GMEND'
 GMEND
 ```
 
-*GM narration* — compose the complete narration first, then call `send.py` as the very last action. Bundle all stat changes into this same call:
+*GM narration* — compose the complete narration first, then call `send.py --turn-final` as the very last action. This explicitly satisfies an active browser Party Input turn; earlier prose sends remain provisional so later tool work cannot suppress the final response. Bundle all stat changes into this same call:
 ```bash
-python3 display/send.py \
+python3 display/send.py --turn-final \
   --stat-hp "CharName:12:17" \
   --stat-condition-add "CharName:Status" << 'GMEND'
 [full narration text]
@@ -289,7 +289,7 @@ d. Inspect ingress's automatic `reconciliation` result. Run `combat.py outbox-pr
    tracker.py        ← non-combat-store effects, death/incapacitation if applicable
    tracker.py effect tick <actor>  ← decrement round effects; prints expiry warnings
 e. Write full narration
-f. send.py [--stat-*] ← complete narration; present the committed display projection, never use it as authority
+f. send.py --turn-final [--stat-*] ← complete narration; present the committed display projection, never use it as authority
 g. After a successful explicit `end_turn` only: push_stats.py --turn-current NEXT ← advance the display pointer; include --turn-round N when wrapping to the first combatant
 ```
 

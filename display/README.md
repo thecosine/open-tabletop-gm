@@ -288,13 +288,13 @@ open http://localhost:5001   # same machine
 # Start a session — no wrapper needed
 claude   # then: /dnd load <campaign>
 
-# Send narration manually
-python3 $DISPLAY/send.py << 'DNDEND'
+# Send final narration manually
+python3 $DISPLAY/send.py --turn-final << 'DNDEND'
 The door groans open onto darkness.
 DNDEND
 
 # Send with stat changes bundled
-python3 $DISPLAY/send.py --stat-hp "Mira:8:17" --stat-condition-add "Mira:Poisoned" << 'DNDEND'
+python3 $DISPLAY/send.py --turn-final --stat-hp "Mira:8:17" --stat-condition-add "Mira:Poisoned" << 'DNDEND'
 The dart catches Mira in the neck. She staggers.
 DNDEND
 

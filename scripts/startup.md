@@ -113,8 +113,8 @@ python3 $SKILL/display/send.py --dice << 'GMEND'
 NAME — Greatsword: d20+10 = 28 vs AC 14 → HIT — 2d6+5 = 16 slashing
 GMEND
 
-# GM narration (bundle stat flags on the same call)
-python3 $SKILL/display/send.py \
+# Final GM narration (bundle stat flags on the same call)
+python3 $SKILL/display/send.py --turn-final \
   --stat-hp "NAME:current:max" \
   --stat-condition-add "NAME:Frightened" << 'GMEND'
 Full narration text — never summarise.
@@ -143,6 +143,10 @@ GMEND
 ```
 
 Block order within one bash call: `--player` → `--dice` → narration with `--stat-*` → `--npc`.
+
+Put `--turn-final` on the last complete GM prose/NPC call only. Earlier same-turn
+prose remains visible but provisional, so subsequent tools and structured events
+cannot suppress OpenCode's final response.
 
 ---
 

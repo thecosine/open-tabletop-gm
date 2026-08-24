@@ -201,7 +201,7 @@ Each player message during an active session:
 5. Resolve the action narratively
    During this same GM/model turn, emit structured duration metadata only when the fiction establishes it. An estimate is distinct from elapsed time: record `{"estimate_id":"...","estimate_minutes":30,"reason":"travel"}` with `calendar.py hint` but do not advance. When a later explicit action consumes that estimate, run `calendar.py consume` with a stable event ID. A clearly completed one-minute action, ten-minute ritual, wait, sleep, or travel may directly run one local `calendar.py advance` event. Ambiguous statements never advance time, and no separate model call is made for arithmetic.
 6. If dice are needed: read `scripts/general.md` → run `dice.py` → narrate result
-7. If display running: send narration via `send.py` (bundle all stat flags in one call). Include an inventory command's confirmation or controlled error when one was run.
+7. If display running: send the complete final narration via `send.py --turn-final` (bundle all stat flags in one call). Earlier same-turn prose sends must omit `--turn-final`. Include an inventory command's confirmation or controlled error when one was run.
 8. If HP/conditions/slots changed: update display with the relevant `push_stats.py` partial flags
 9. If the action resolves an awardable combat, exploration, rescue, quest, diplomacy, crafting, trade-assimilation, dungeon, story, or other meaningful event: assign/confirm its stable event ID and process its XP disposition immediately per `SKILL.md → Experience & Progression`. For Mythlon, use `scripts/mythlon_xp_event.py`; do not leave a generic pending award.
 
@@ -224,7 +224,7 @@ Each turn in combat:
 2. Run `tracker.py effect tick` for the active combatant
 3. Inspect each ingress response's automatic `reconciliation` result. Target HP/conditions, persistent resources, and the campaign-local display projection are normally applied there. Run explicit `combat.py outbox-process` only when reconciliation reports pending/incomplete work or during recovery, using the current recovery revision, never the earlier transaction revision.
 4. If display running: consume the committed projection for presentation; do not independently mutate authoritative HP/resources.
-5. If display running: send narration via `send.py`
+5. If display running: send the complete final narration via `send.py --turn-final`
 
 A successful attack does not end the actor's turn. The authoritative `active_turn` remains open until an explicit `end_turn` lifecycle event succeeds. While it remains open, do not advance display `turn_order.current` after an ordinary attack or other action. After successful explicit `end_turn`, advance `push_stats.py --turn-current` to the next combatant; if that advancement wraps to the first combatant, update `--turn-round` appropriately. Previous/Next UI controls are manual correction only, not the normal turn-completion path.
 
